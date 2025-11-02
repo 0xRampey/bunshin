@@ -162,7 +162,18 @@ pub enum Commands {
     
     /// Show session manager TUI (legacy compatibility)
     Manager,
-    
+
+    /// Initialize session from current directory with Claude Code
+    Init {
+        /// Branch name (auto-generated if not specified)
+        #[arg(short, long)]
+        branch: Option<String>,
+
+        /// Session name (uses directory name if not specified)
+        #[arg(short, long)]
+        name: Option<String>,
+    },
+
     /// Tail logs from agents
     Logs {
         /// Agent ID to tail logs from

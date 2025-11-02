@@ -5,18 +5,47 @@ use crate::session::Session;
 pub struct ClaudeCodeManager;
 
 impl ClaudeCodeManager {
+    /// Find the claude binary in multiple possible locations
+    fn find_claude_binary() -> Option<PathBuf> {
+        // Try multiple locations in order of preference
+        let candidates = vec![
+            // 1. Check if 'claude' is in PATH
+            which::which("claude").ok(),
+            // 2. Check homebrew location (macOS)
+            Some(PathBuf::from("/opt/homebrew/bin/claude")),
+            // 3. Check common homebrew location (Intel Mac)
+            Some(PathBuf::from("/usr/local/bin/claude")),
+            // 4. Check user's local bin
+            std::env::var("HOME").ok().map(|home| PathBuf::from(home).join(".local/bin/claude")),
+            // 5. Check legacy location
+            std::env::var("HOME").ok().map(|home| PathBuf::from(home).join(".claude/local/claude")),
+        ];
+
+        for candidate in candidates.into_iter().flatten() {
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+
+        None
+    }
+
+    /// Check if Claude Code is available on the system
+    pub fn is_available() -> bool {
+        Self::find_claude_binary().is_some()
+    }
+
+    /// Launch Claude Code as a background process (for TUI)
     pub fn launch_claude_code(session: &mut Session) -> Result<(), Box<dyn std::error::Error>> {
         if session.claude_pid.is_some() {
             return Err("Claude Code is already running for this session".into());
         }
 
-        // Use the full path to claude command
-        let claude_path = std::env::var("HOME").unwrap_or_default() + "/.claude/local/claude";
-        
-        // Check if claude binary exists
-        if !std::path::Path::new(&claude_path).exists() {
-            return Err("Claude binary not found. Make sure Claude Code is installed.".into());
-        }
+        // Find claude binary
+        let claude_path = Self::find_claude_binary()
+            .ok_or_else(|| {
+                "Claude Code binary not found. Install it with: brew install claude-code\nOr download from: https://claude.ai/download"
+            })?;
 
         // Check if worktree exists
         if !session.worktree_path.exists() {
@@ -24,13 +53,42 @@ impl ClaudeCodeManager {
         }
 
         let child = Command::new(&claude_path)
-            .arg("code")
             .current_dir(&session.worktree_path)
             .spawn()?;
 
         session.claude_pid = Some(child.id());
-        
+
         Ok(())
+    }
+
+    /// Launch Claude Code in interactive mode (replaces current process)
+    pub fn launch_claude_code_interactive(worktree_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+        use std::os::unix::process::CommandExt;
+
+        // Find claude binary
+        let claude_path = Self::find_claude_binary()
+            .ok_or_else(|| {
+                "Claude Code binary not found. Install it with: brew install claude-code\nOr download from: https://claude.ai/download"
+            })?;
+
+        // Check if worktree exists
+        if !worktree_path.exists() {
+            return Err("Worktree directory does not exist".into());
+        }
+
+        // Exec into Claude Code (this replaces the current process)
+        let mut cmd = Command::new(&claude_path);
+        cmd.current_dir(worktree_path);
+
+        // Set environment variables to help Claude understand context
+        cmd.env("BUNSHIN_SESSION", "true");
+        cmd.env("BUNSHIN_WORKTREE", worktree_path.display().to_string());
+
+        // Replace current process with Claude Code
+        let error = cmd.exec();
+
+        // If we get here, exec failed
+        Err(format!("Failed to launch Claude Code: {}", error).into())
     }
 
     pub fn is_claude_running(pid: u32) -> bool {
