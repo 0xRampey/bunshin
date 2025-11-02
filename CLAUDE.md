@@ -25,6 +25,18 @@ The system uses a tmux-inspired hierarchy:
 - `AgentState`: Lifecycle states (Starting, Running, Idle, Stopped, Error)
 - `Project`: Project metadata for organizing work
 
+**Shpool Proxy** (`src/shpool_proxy.rs`):
+- `ShpoolProxy`: Pass-through proxy for Claude Code sessions
+- Forwards stdin/stdout between terminal and Claude Code
+- Handles Ctrl-~ hotkey to toggle overlay
+- VT100 escape sequence encoding for terminal input
+
+**Overlay UI** (`src/overlay.rs`):
+- `OverlayState`: Session state shown in overlay
+- Modal overlay using alternate screen (zero interference)
+- Ratatui-based TUI showing session info, agents, controls
+- Toggleable with Ctrl-~ without disrupting the running session
+
 **Manager** (`src/manager.rs`):
 - `BunshinManager`: Central orchestrator for sessions, windows, and agents
 - Persists state to `~/.bunshin/manager.json`

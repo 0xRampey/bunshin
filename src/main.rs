@@ -8,6 +8,8 @@ pub mod core;
 pub mod cli;
 pub mod manager;
 pub mod process;
+pub mod overlay;
+pub mod shpool_proxy;
 
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
@@ -29,6 +31,7 @@ use crate::cli::{Cli, Commands};
 use crate::core::{BunshinSession, Window, Agent, AgentModel, Project};
 use crate::manager::BunshinManager;
 use crate::process::{ProcessManager, ProcessConfig};
+use crate::shpool_proxy::ShpoolProxy;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -958,7 +961,7 @@ async fn handle_init_session(
         current_dir.clone(),
     );
 
-    // Save session to the session manager first (before exec)
+    // Save session to the session manager first
     let mut app = App::new()?;
     app.session_manager.add_session(session.clone());
     app.save_sessions()?;
@@ -966,11 +969,19 @@ async fn handle_init_session(
     println!("✅ Session '{}' created successfully!", session_name);
     println!("📁 Worktree: {}", worktree_path.display());
     println!();
-    println!("🚀 Launching Claude Code in interactive mode...");
-    println!();
 
-    // Launch Claude Code directly (this will replace the current process)
-    ClaudeCodeManager::launch_claude_code_interactive(&session.worktree_path)?;
+    // Find Claude Code binary
+    let claude_path = ClaudeCodeManager::find_claude_binary_public()
+        .ok_or_else(|| "Claude Code not found")?;
+
+    // Launch with shpool proxy and overlay
+    let mut proxy = ShpoolProxy::new(
+        session_name.clone(),
+        worktree_path.clone(),
+        branch_name.clone(),
+    );
+
+    proxy.start(claude_path).await?;
 
     Ok(())
 }
