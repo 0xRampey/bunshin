@@ -5,6 +5,11 @@ use crate::session::Session;
 pub struct ClaudeCodeManager;
 
 impl ClaudeCodeManager {
+    /// Find the claude binary in multiple possible locations (public API)
+    pub fn find_claude_binary_public() -> Option<PathBuf> {
+        Self::find_claude_binary()
+    }
+
     /// Find the claude binary in multiple possible locations
     fn find_claude_binary() -> Option<PathBuf> {
         // Try multiple locations in order of preference
