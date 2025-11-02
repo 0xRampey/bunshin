@@ -21,7 +21,7 @@ use clap::Parser;
 
 use crate::claude::ClaudeCodeManager;
 use crate::git::GitWorktree;
-use crate::session::Session;
+use crate::session::{Session, SessionManager};
 use crate::shell::ShellManager;
 use crate::session_shell::SessionShell;
 use crate::ui::{draw_create_session, draw_sessions_list, App, AppState};
@@ -44,8 +44,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     match cli.command {
         None => {
-            // No command provided - run TUI session manager
-            run_session_manager().await
+            // No command provided - check if pwd is a git repo
+            let current_dir = std::env::current_dir()?;
+            if GitWorktree::is_git_repo(&current_dir) {
+                // Check if Claude Code is available first
+                if !ClaudeCodeManager::is_available() {
+                    println!("❌ Claude Code not found on this system");
+                    println!();
+                    println!("Bunshin requires Claude Code to be installed.");
+                    println!();
+                    println!("💡 Install with: brew install claude-code");
+                    println!("💡 Or download from: https://claude.ai/download");
+                    println!();
+                    println!("Once installed, run 'bunshin' again.");
+                    return Ok(());
+                } else {
+                    // Auto-init session from pwd with Claude Code
+                    handle_init_session(None, None).await
+                }
+            } else {
+                // Not a git repo - run TUI session manager
+                run_session_manager().await
+            }
         }
         Some(Commands::Manager) => {
             // Force TUI session manager
@@ -96,6 +116,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(Commands::Import { input, merge }) => {
             handle_import(input, merge).await
+        }
+        Some(Commands::Init { branch, name }) => {
+            handle_init_session(branch, name).await
         }
     }
 }
@@ -358,53 +381,58 @@ async fn run_app(
 // CLI Command Handlers
 
 async fn handle_list_sessions(_all: bool, _project: Option<String>, format: String) -> Result<(), Box<dyn std::error::Error>> {
-    let manager = BunshinManager::new()?;
-    let sessions = manager.list_sessions();
-    
+    // Load sessions from the TUI's storage location (legacy system)
+    let config_dir = dirs::config_dir()
+        .ok_or("Could not find config directory")?
+        .join("bunshin");
+    let config_path = config_dir.join("sessions.json");
+
+    let session_manager = SessionManager::load_from_file(&config_path)?;
+    let sessions = &session_manager.sessions;
+
     if sessions.is_empty() {
         println!("No sessions found.");
+        println!("💡 Create a session with: bunshin init");
         return Ok(());
     }
-    
+
     match format.as_str() {
         "json" => {
             println!("{}", serde_json::to_string_pretty(&sessions)?);
         }
         "compact" => {
-            for session in &sessions {
-                let agent_count = session.total_agents();
-                println!("{}: {} agents, ${:.4} total cost", 
-                    session.name, agent_count, session.total_cost());
+            for session in sessions {
+                let status = if session.is_active() { "●" } else { "○" };
+                println!("{} {}: {} ({})",
+                    status, session.name, session.branch, session.worktree_path.display());
             }
         }
         _ => {
             // Table format (default)
             use tabled::{Table, Tabled};
-            
+
             #[derive(Tabled)]
             struct SessionRow {
+                status: String,
                 name: String,
-                agents: String,
-                windows: String,
-                cost: String,
-                tokens: String,
+                branch: String,
+                worktree: String,
                 created: String,
             }
-            
+
             let rows: Vec<SessionRow> = sessions.iter().map(|s| SessionRow {
+                status: if s.is_active() { "●".to_string() } else { "○".to_string() },
                 name: s.name.clone(),
-                agents: s.total_agents().to_string(),
-                windows: s.windows.len().to_string(),
-                cost: format!("${:.4}", s.total_cost()),
-                tokens: s.total_tokens().to_string(),
+                branch: s.branch.clone(),
+                worktree: s.worktree_path.display().to_string(),
                 created: s.created_at.format("%Y-%m-%d %H:%M").to_string(),
             }).collect();
-            
+
             let table = Table::new(rows);
             println!("{}", table);
         }
     }
-    
+
     Ok(())
 }
 
@@ -846,6 +874,104 @@ async fn handle_export(_session_id: String, _output: Option<PathBuf>, _format: S
 
 async fn handle_import(_input: PathBuf, _merge: bool) -> Result<(), Box<dyn std::error::Error>> {
     println!("Import not yet implemented for file: {:?}", _input);
+    Ok(())
+}
+
+async fn handle_init_session(
+    branch_opt: Option<String>,
+    name_opt: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Get current directory
+    let current_dir = std::env::current_dir()?;
+
+    // Check if it's a git repository
+    if !GitWorktree::is_git_repo(&current_dir) {
+        println!("❌ Current directory is not a git repository");
+        println!("💡 Run 'git init' first, or cd into a git repository");
+        return Ok(());
+    }
+
+    // MANDATORY: Check if Claude Code is available
+    if !ClaudeCodeManager::is_available() {
+        println!("❌ Claude Code not found on this system");
+        println!();
+        println!("Bunshin requires Claude Code to be installed.");
+        println!("Without Claude Code, Bunshin cannot create sessions.");
+        println!();
+        println!("💡 Install with: brew install claude-code");
+        println!("💡 Or download from: https://claude.ai/download");
+        println!();
+        println!("Once installed, run 'bunshin' again.");
+        return Ok(());
+    }
+
+    println!("🎯 Initializing Bunshin session from current directory...");
+    println!("📁 Repository: {}", current_dir.display());
+
+    // Auto-generate session name from directory name
+    let session_name = if let Some(name) = name_opt {
+        name
+    } else {
+        current_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("default")
+            .to_string()
+    };
+
+    // Auto-generate or use provided branch name
+    let branch_name = if let Some(branch) = branch_opt {
+        branch
+    } else {
+        // Generate branch name with timestamp
+        format!("bunshin-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"))
+    };
+
+    println!("📝 Session name: {}", session_name);
+    println!("🌿 Branch: {}", branch_name);
+
+    // Create worktree
+    let worktree_base = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join(".bunshin")
+        .join("worktrees");
+
+    std::fs::create_dir_all(&worktree_base)?;
+    let worktree_path = worktree_base.join(format!("{}-{}", session_name, branch_name));
+
+    println!("🔨 Creating worktree...");
+    match GitWorktree::create_worktree(&current_dir, &worktree_path, &branch_name) {
+        Ok(()) => {
+            println!("✅ Worktree created at: {}", worktree_path.display());
+        }
+        Err(e) => {
+            println!("❌ Failed to create worktree: {}", e);
+            return Ok(());
+        }
+    }
+
+    // Create session using the legacy Session type (for compatibility with TUI)
+    let mut session = Session::new(
+        session_name.clone(),
+        worktree_path.clone(),
+        branch_name.clone(),
+        current_dir.clone(),
+    );
+
+    // Save session to the session manager first (before exec)
+    let mut app = App::new()?;
+    app.session_manager.add_session(session.clone());
+    app.save_sessions()?;
+
+    println!("✅ Session '{}' created successfully!", session_name);
+    println!("📁 Worktree: {}", worktree_path.display());
+    println!();
+    println!("🚀 Launching Claude Code in interactive mode...");
+    println!();
+
+    // Launch Claude Code directly (this will replace the current process)
+    ClaudeCodeManager::launch_claude_code_interactive(&session.worktree_path)?;
+
     Ok(())
 }
 
