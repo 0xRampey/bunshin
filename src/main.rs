@@ -9,7 +9,7 @@ pub mod cli;
 pub mod manager;
 pub mod process;
 pub mod overlay;
-pub mod shpool_proxy;
+pub mod abduco_session;
 
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
@@ -31,7 +31,7 @@ use crate::cli::{Cli, Commands};
 use crate::core::{BunshinSession, Window, Agent, AgentModel, Project};
 use crate::manager::BunshinManager;
 use crate::process::{ProcessManager, ProcessConfig};
-use crate::shpool_proxy::ShpoolProxy;
+use crate::abduco_session::AbducoSession;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -74,9 +74,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Force TUI session manager
             run_session_manager().await
         }
-        Some(Commands::Attach { target }) => {
-            // Legacy attach command - try to attach to session by name
-            attach_to_session(&target).await
+        Some(Commands::Attach { session_name }) => {
+            handle_attach_session(session_name).await
+        }
+        Some(Commands::Detach) => {
+            handle_detach_session().await
+        }
+        Some(Commands::Sessions) => {
+            handle_list_shpool_sessions().await
+        }
+        Some(Commands::KillSession { session_name }) => {
+            handle_kill_shpool_session(session_name).await
         }
         Some(Commands::Shell { agent_id }) => {
             handle_agent_shell(agent_id).await
@@ -974,15 +982,89 @@ async fn handle_init_session(
     let claude_path = ClaudeCodeManager::find_claude_binary_public()
         .ok_or_else(|| "Claude Code not found")?;
 
-    // Launch with shpool proxy and overlay
-    let mut proxy = ShpoolProxy::new(
+    // Check abduco is installed
+    AbducoSession::check_abduco_installed()?;
+
+    // Create abduco session with Claude Code (persistent!)
+    let abduco_session = AbducoSession::new(
         session_name.clone(),
         worktree_path.clone(),
         branch_name.clone(),
     );
 
-    proxy.start(claude_path).await?;
+    // Create the session (detached)
+    abduco_session.create(claude_path.clone()).await?;
 
+    // Now attach to it with our overlay
+    let mut attached_session = AbducoSession::new(
+        session_name,
+        worktree_path,
+        branch_name,
+    );
+
+    attached_session.attach().await?;
+
+    Ok(())
+}
+
+async fn handle_attach_session(session_name: String) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🔗 Attaching to abduco session: {}", session_name);
+
+    // Check abduco is installed
+    AbducoSession::check_abduco_installed()?;
+
+    // Load session info from our session manager to get worktree/branch
+    let app = App::new()?;
+    if let Some(session) = app.session_manager.sessions.iter().find(|s| s.name == session_name) {
+        let mut abduco_session = AbducoSession::new(
+            session.name.clone(),
+            session.worktree_path.clone(),
+            session.branch.clone(),
+        );
+
+        abduco_session.attach().await?;
+    } else {
+        println!("❌ Session '{}' not found in Bunshin sessions", session_name);
+        println!("💡 Try: bunshin sessions - to list active abduco sessions");
+        println!("💡 Or: bunshin ls - to list Bunshin sessions");
+    }
+
+    Ok(())
+}
+
+async fn handle_detach_session() -> Result<(), Box<dyn std::error::Error>> {
+    println!("💡 To detach from the current abduco session:");
+    println!("   Press Ctrl-\\ (abduco's default detach key)");
+    println!();
+    println!("   The session will continue running in the background.");
+    println!("   Use 'bunshin attach <session-name>' to reattach");
+    Ok(())
+}
+
+async fn handle_list_shpool_sessions() -> Result<(), Box<dyn std::error::Error>> {
+    println!("📋 Active abduco sessions:");
+    println!();
+
+    let sessions = AbducoSession::list_sessions()?;
+
+    if sessions.is_empty() {
+        println!("No active sessions found.");
+        println!("💡 Create a session with: bunshin init");
+    } else {
+        for session in sessions {
+            println!("  • {}", session);
+        }
+    }
+
+    println!();
+    println!("💡 Use 'bunshin attach <session-name>' to attach to a session");
+    Ok(())
+}
+
+async fn handle_kill_shpool_session(session_name: String) -> Result<(), Box<dyn std::error::Error>> {
+    println!("💀 Killing abduco session: {}", session_name);
+    AbducoSession::kill_session(&session_name)?;
+    println!("✅ Session '{}' terminated", session_name);
     Ok(())
 }
 
