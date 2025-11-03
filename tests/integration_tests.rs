@@ -154,14 +154,15 @@ fn test_session_persistence() {
 fn test_error_conditions() {
     let (_temp_dir, repo_path) = setup_test_repo().unwrap();
     
-    // Test: Try to create worktree with existing directory
+    // Test: Try to create worktree with existing file (not directory)
     let worktree_temp = TempDir::new().unwrap();
-    let existing_dir = worktree_temp.path().join("existing-directory");
-    std::fs::create_dir(&existing_dir).unwrap();
-    
-    let result = GitWorktree::create_worktree(&repo_path, &existing_dir, "test-branch");
+    let existing_file = worktree_temp.path().join("existing-file");
+    // Create a file (not directory) at the target path
+    std::fs::write(&existing_file, "content").unwrap();
+
+    let result = GitWorktree::create_worktree(&repo_path, &existing_file, "test-branch");
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("Worktree path already exists"));
+    assert!(result.unwrap_err().to_string().contains("Worktree path exists as a file"));
     
     // Test: Try to create worktree with invalid repo
     let invalid_repo = PathBuf::from("/tmp/nonexistent-repo");

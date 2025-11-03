@@ -88,12 +88,24 @@ pub enum Commands {
         project: Option<String>,
     },
     
-    /// Attach to specific session, window, or agent
+    /// Attach to a shpool session (persistent sessions)
     Attach {
-        /// Target to attach to (session-id, window-id, or agent-id)
-        target: String,
+        /// Session name to attach to
+        session_name: String,
     },
-    
+
+    /// Detach from current shpool session
+    Detach,
+
+    /// List active shpool sessions
+    Sessions,
+
+    /// Kill a shpool session
+    KillSession {
+        /// Session name to kill
+        session_name: String,
+    },
+
     /// Connect to agent's interactive shell
     Shell {
         /// Agent ID to connect to

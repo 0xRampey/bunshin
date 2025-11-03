@@ -186,7 +186,6 @@ echo ""
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     
     #[test]
     fn test_session_detection() {
@@ -207,8 +206,10 @@ mod tests {
         assert_eq!(path, PathBuf::from("/tmp/test-path"));
         
         // Clean up
-        env::remove_var("BUNSHIN_SESSION_BRANCH");
-        env::remove_var("BUNSHIN_SESSION_PATH");
+        unsafe {
+            env::remove_var("BUNSHIN_SESSION_BRANCH");
+            env::remove_var("BUNSHIN_SESSION_PATH");
+        }
     }
     
     #[test]
