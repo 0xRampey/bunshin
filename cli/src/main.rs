@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const PLUGIN_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bunshin.wasm"));
-const ZELLIJ_VERSION: &str = "0.44.0";
+const ZELLIJ_VERSION: &str = "0.43.1";
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
