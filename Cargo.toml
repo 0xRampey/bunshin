@@ -1,25 +1,18 @@
-[package]
-name = "bunshin"
+[workspace]
+members = ["cli"]
+exclude = ["plugin"]
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
-edition = "2024"
-default-run = "bunshin"
+edition = "2021"
+authors = ["Prudhvi Rampey"]
+license = "MIT"
+repository = "https://github.com/0xRampey/bunshin"
+description = "Shadow Clone Technique for Claude Code - One command to launch AI-powered development environments"
 
-[dependencies]
-ratatui = "0.29"
-crossterm = "0.28"
-tokio = { version = "1.0", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-dirs = "5.0"
-chrono = { version = "0.4", features = ["serde"] }
-clap = { version = "4.0", features = ["derive"] }
-uuid = { version = "1.0", features = ["v4"] }
-tabled = "0.15"
-which = "6.0"
-futures = "0.3"
-signal-hook = "0.3"
-signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
-anyhow = "1.0"
-
-[dev-dependencies]
-tempfile = "3.0"
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1
+opt-level = "z"

@@ -1,0 +1,10 @@
+/Users/prudhvirampey/Documents/bunshin/plugin/target/wasm32-wasip1/release/deps/litemap-92f773c25b27e129.d: /Users/prudhvirampey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/litemap-0.8.1/src/lib.rs /Users/prudhvirampey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/litemap-0.8.1/src/map.rs /Users/prudhvirampey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/litemap-0.8.1/src/store/mod.rs /Users/prudhvirampey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/litemap-0.8.1/src/store/slice_impl.rs
+
+/Users/prudhvirampey/Documents/bunshin/plugin/target/wasm32-wasip1/release/deps/liblitemap-92f773c25b27e129.rlib: /Users/prudhvirampey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/litemap-0.8.1/src/lib.rs /Users/prudhvirampey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/litemap-0.8.1/src/map.rs /Users/prudhvirampey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/litemap-0.8.1/src/store/mod.rs /Users/prudhvirampey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/litemap-0.8.1/src/store/slice_impl.rs
+
+/Users/prudhvirampey/Documents/bunshin/plugin/target/wasm32-wasip1/release/deps/liblitemap-92f773c25b27e129.rmeta: /Users/prudhvirampey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/litemap-0.8.1/src/lib.rs /Users/prudhvirampey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/litemap-0.8.1/src/map.rs /Users/prudhvirampey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/litemap-0.8.1/src/store/mod.rs /Users/prudhvirampey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/litemap-0.8.1/src/store/slice_impl.rs
+
+/Users/prudhvirampey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/litemap-0.8.1/src/lib.rs:
+/Users/prudhvirampey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/litemap-0.8.1/src/map.rs:
+/Users/prudhvirampey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/litemap-0.8.1/src/store/mod.rs:
+/Users/prudhvirampey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/litemap-0.8.1/src/store/slice_impl.rs:

@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-wasm:
+    name: Build WASM Plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+
+      - name: Build WASM
+        run: |
+          cargo build --release --target wasm32-wasip1 --manifest-path plugin/Cargo.toml
+
+          # Create prebuilt directory for embedding in binary builds
+          mkdir -p plugin/prebuilt
+          cp plugin/target/wasm32-wasip1/release/bunshin.wasm plugin/prebuilt/
+
+      - name: Upload WASM artifact (standalone)
+        uses: actions/upload-artifact@v4
+        with:
+          name: bunshin.wasm
+          path: plugin/target/wasm32-wasip1/release/bunshin.wasm
+
+      - name: Upload prebuilt WASM (for binary builds)
+        uses: actions/upload-artifact@v4
+        with:
+          name: prebuilt-wasm
+          path: plugin/prebuilt/bunshin.wasm
+
+  build-binary:
+    name: Build Binary - ${{ matrix.os }}
+    needs: [build-wasm]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: bunshin-linux-x86_64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact_name: bunshin-linux-aarch64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: bunshin-macos-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: bunshin-macos-aarch64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download pre-built WASM
+        uses: actions/download-artifact@v4
+        with:
+          name: prebuilt-wasm
+          path: plugin/prebuilt/
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build Binary
+        run: |
+          cargo build --release --target ${{ matrix.target }} -p bunshin
+
+      - name: Package Binary
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf ${{ matrix.artifact_name }}.tar.gz bunshin
+          mv ${{ matrix.artifact_name }}.tar.gz ${{ github.workspace }}/
+
+      - name: Upload Binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}.tar.gz
+
+  release:
+    name: Create GitHub Release
+    needs: [build-wasm, build-binary]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/bunshin.wasm/bunshin.wasm
+            artifacts/bunshin-linux-x86_64/bunshin-linux-x86_64.tar.gz
+            artifacts/bunshin-linux-aarch64/bunshin-linux-aarch64.tar.gz
+            artifacts/bunshin-macos-x86_64/bunshin-macos-x86_64.tar.gz
+            artifacts/bunshin-macos-aarch64/bunshin-macos-aarch64.tar.gz
+          generate_release_notes: true

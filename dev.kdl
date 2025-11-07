@@ -1,0 +1,44 @@
+// Development layout for testing Bunshin plugin
+// Usage: zellij --layout ./dev.kdl
+
+layout {
+    pane size=1 borderless=true {
+        plugin location="tab-bar"
+    }
+
+    pane split_direction="vertical" {
+        // Left: Build/watch commands
+        pane {
+            name "Build"
+            // Run: cargo watch -x 'build --release --target wasm32-wasip1 --manifest-path plugin/Cargo.toml'
+        }
+
+        // Right: Test pane
+        pane {
+            name "Test"
+        }
+    }
+
+    pane size=2 borderless=true {
+        plugin location="status-bar"
+    }
+}
+
+keybinds {
+    normal {
+        bind "Ctrl b" { SwitchToMode "tmux"; }
+    }
+    tmux {
+        // Test the plugin during development
+        bind "s" {
+            LaunchOrFocusPlugin "file:plugin/target/wasm32-wasip1/release/bunshin.wasm" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "normal";
+        }
+        bind "Ctrl c" "Esc" {
+            SwitchToMode "normal";
+        }
+    }
+}
