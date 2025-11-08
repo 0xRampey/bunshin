@@ -248,6 +248,189 @@ bunshin --setup
 
 Contributions welcome! This is a standalone installer for the Bunshin plugin.
 
+### Quick Start for Developers
+
+**TL;DR - Get up and running in 2 minutes:**
+
+```bash
+# 1. Clone and setup
+git clone https://github.com/0xRampey/bunshin.git
+cd bunshin
+rustup target add wasm32-wasip1
+
+# 2. Build and install
+cargo install --path cli --force
+
+# 3. Test it (requires Zellij installed)
+bunshin
+
+# 4. Make changes and iterate
+# Edit code → cargo install --path cli --force → test
+```
+
+**State/Config Locations:**
+- Installed binary: `~/.cargo/bin/bunshin`
+- Runtime files: `~/.bunshin/`
+  - `bin/claude-fork` - Fork wrapper script
+  - `config/*.kdl` - Zellij configs
+  - `plugins/bunshin.wasm` - Plugin binary
+  - `state/*.{pane_count,parent_session,debug.log}` - Runtime state
+
+### Development Setup
+
+**Prerequisites:**
+- Rust 1.70+ with `cargo`
+- Zellij 0.43.1+ (for testing)
+- Claude Code CLI installed and in PATH
+- WASM target: `rustup target add wasm32-wasip1`
+
+**Clone and Build:**
+
+```bash
+# Clone the repository
+git clone https://github.com/0xRampey/bunshin.git
+cd bunshin
+
+# Add WASM target if not already installed
+rustup target add wasm32-wasip1
+
+# Build everything (plugin + CLI)
+cargo build --release
+
+# The binary will be at: target/release/bunshin
+```
+
+**Development Workflow:**
+
+```bash
+# 1. Make your changes to the code
+#    - CLI code: cli/src/main.rs
+#    - Plugin code: plugin/src/main.rs
+#    - Fork wrapper: cli/src/main.rs (CLAUDE_FORK_SCRIPT constant)
+
+# 2. Build (builds plugin WASM first, then embeds it in CLI binary)
+cargo build --release
+
+# 3. Install locally for testing
+cargo install --path cli --force
+
+# 4. Test your changes
+bunshin
+
+# 5. Clean up test environment (optional)
+rm -rf ~/.bunshin/
+```
+
+**Testing the Fork Wrapper:**
+
+The conversation forking script can be tested with debug logging:
+
+```bash
+# Enable debug mode
+export BUNSHIN_DEBUG=1
+
+# Launch bunshin
+bunshin
+
+# After testing, check debug logs
+cat ~/.bunshin/state/*.debug.log
+```
+
+**Project Structure:**
+
+```
+bunshin/
+├── cli/                          # Binary crate
+│   ├── build.rs                  # Compiles plugin, embeds WASM
+│   └── src/
+│       └── main.rs               # CLI logic + embedded assets
+├── plugin/                       # Plugin crate (compiles to WASM)
+│   ├── Cargo.toml
+│   └── src/
+│       └── main.rs               # Zellij plugin logic
+├── Cargo.toml                    # Workspace configuration
+└── README.md
+```
+
+**Key Files to Modify:**
+
+- `cli/src/main.rs`:
+  - `CLAUDE_FORK_SCRIPT` - The bash script that manages conversation forking
+  - `create_config_file()` - Generates Zellij config with keybindings
+  - `create_layout_file()` - Generates default layout
+  - `print_help()` - CLI help text
+
+- `plugin/src/main.rs`:
+  - Session manager TUI
+  - Keybind handlers (`C`, `A`, `N` keys)
+  - `launch_claude_pane()` - Spawns Claude in new pane
+  - `launch_claude_tab()` - Spawns Claude in new tab
+
+**Build Process:**
+
+1. `build.rs` compiles `plugin/` to WASM (`bunshin.wasm`)
+2. `build.rs` copies WASM to `OUT_DIR`
+3. `cli/src/main.rs` embeds WASM via `include_bytes!`
+4. CLI binary contains plugin + config templates + fork script
+5. On first run, binary extracts everything to `~/.bunshin/`
+
+**Testing Changes:**
+
+```bash
+# After making changes, reinstall and test
+cargo install --path cli --force
+
+# Remove old configs to test fresh setup
+rm -rf ~/.bunshin/config/
+rm -rf ~/.bunshin/bin/
+
+# Run to trigger setup
+bunshin
+```
+
+**Debugging Tips:**
+
+1. **Plugin not updating?** Remove the plugin file:
+   ```bash
+   rm ~/.bunshin/plugins/bunshin.wasm
+   bunshin  # Will reinstall plugin
+   ```
+
+2. **Config not updating?** Remove config files:
+   ```bash
+   rm ~/.bunshin/config/*
+   bunshin  # Will regenerate configs
+   ```
+
+3. **Fork script issues?** Enable debug logging:
+   ```bash
+   export BUNSHIN_DEBUG=1
+   tail -f ~/.bunshin/state/*.debug.log
+   ```
+
+4. **Check Zellij logs:**
+   ```bash
+   # Zellij logs are in:
+   cat /tmp/zellij-*/zellij-log/*
+   ```
+
+**Making a Pull Request:**
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Make your changes following the existing code style
+4. Test thoroughly with `cargo install --path cli --force`
+5. Commit with clear messages describing what and why
+6. Push to your fork and open a PR
+
+**Development Notes:**
+
+- The plugin is compiled to WASM and embedded in the CLI binary at build time
+- Configuration files are generated from Rust string templates
+- The fork wrapper is a bash script embedded as a constant
+- All setup files are installed to `~/.bunshin/` on first run
+- State files in `~/.bunshin/state/` are created dynamically during use
+
 ## 📄 License
 
 MIT License - see LICENSE file for details
