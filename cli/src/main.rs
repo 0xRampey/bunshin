@@ -182,7 +182,7 @@ Usage:
 
 Keybindings:
   Ctrl+b s  Open Bunshin session manager (tmux-style!)
-  Ctrl+b c  Create new tab/window
+  Ctrl+b c  Create new tab/window (🍴 forks conversation!)
   Ctrl+b d  Detach from session
 
 Inside session manager:
@@ -193,12 +193,17 @@ Inside session manager:
   q         Close manager
 
 🌟 Conversation Forking:
-  When you open a new pane/tab with 'C' or 'A', Bunshin automatically
-  forks the conversation from the first pane, allowing you to explore
-  different paths from the same starting point!
+  Bunshin automatically forks conversations when you create new tabs/panes.
+  This lets you explore different solution paths from the same starting point!
 
+  Ways to fork:
+  - Ctrl+b c: Create new tab with forked conversation
+  - Session manager 'C': Spawn Claude in new pane (forked)
+  - Session manager 'A': Spawn Claude in new tab (forked)
+
+  How it works:
   - First pane: Starts fresh conversation
-  - Subsequent panes: Fork from the first pane's conversation
+  - Subsequent panes/tabs: Fork from the first pane's conversation
 
 Examples:
   bunshin                    # Launch (Claude auto-starts)
@@ -226,9 +231,11 @@ fn setup() -> Result<()> {
     let layout_path = config_dir.join("layout.kdl");
     let fork_script_path = bin_dir.join("claude-fork");
 
-    // Check if setup is needed
-    if plugin_path.exists() && config_path.exists() && layout_path.exists() && fork_script_path.exists() {
-        // Setup already done, skip silently
+    // Check if any setup is needed
+    let need_setup = !plugin_path.exists() || !config_path.exists() || !layout_path.exists() || !fork_script_path.exists();
+
+    if !need_setup {
+        // All files exist, skip silently
         return Ok(());
     }
 
@@ -239,37 +246,47 @@ fn setup() -> Result<()> {
     fs::create_dir_all(&config_dir)?;
     fs::create_dir_all(&bin_dir)?;
 
-    // Extract embedded plugin WASM
-    println!("📦 Installing Bunshin plugin...");
-    let mut file = fs::File::create(&plugin_path)?;
-    file.write_all(PLUGIN_WASM)?;
-    println!("   ✅ Plugin installed: {}", plugin_path.display());
+    // Extract embedded plugin WASM if missing
+    if !plugin_path.exists() {
+        println!("📦 Installing Bunshin plugin...");
+        let mut file = fs::File::create(&plugin_path)?;
+        file.write_all(PLUGIN_WASM)?;
+        println!("   ✅ Plugin installed: {}", plugin_path.display());
+    }
 
-    // Create config file
-    println!("⚙️  Creating configuration...");
-    create_config_file(&config_path, &plugin_path)?;
-    println!("   ✅ Config created: {}", config_path.display());
+    // Create config file if missing
+    if !config_path.exists() {
+        println!("⚙️  Creating configuration...");
+        create_config_file(&config_path, &plugin_path, &fork_script_path)?;
+        println!("   ✅ Config created: {}", config_path.display());
+    }
 
-    // Create layout file
-    create_layout_file(&layout_path)?;
-    println!("   ✅ Layout created: {}", layout_path.display());
+    // Create layout file if missing
+    if !layout_path.exists() {
+        create_layout_file(&layout_path, &fork_script_path)?;
+        println!("   ✅ Layout created: {}", layout_path.display());
+    }
 
-    // Install claude-fork wrapper script
-    println!("🍴 Installing conversation fork wrapper...");
-    install_claude_fork_script(&fork_script_path)?;
-    println!("   ✅ Fork wrapper installed: {}", fork_script_path.display());
+    // Install claude-fork wrapper script if missing
+    if !fork_script_path.exists() {
+        println!("🍴 Installing conversation fork wrapper...");
+        install_claude_fork_script(&fork_script_path)?;
+        println!("   ✅ Fork wrapper installed: {}", fork_script_path.display());
+    }
 
     // Check for Zellij
-    println!("🔍 Checking for Zellij...");
-    match which_zellij() {
-        Some(path) => {
-            println!("   ✅ Found Zellij: {}", path.display());
-        }
-        None => {
-            println!("   ⚠️  Zellij not found in PATH");
-            println!("   📥 Please install Zellij:");
-            println!("      cargo install zellij");
-            println!("      or visit: https://zellij.dev/documentation/installation");
+    if !plugin_path.exists() || !config_path.exists() {
+        println!("🔍 Checking for Zellij...");
+        match which_zellij() {
+            Some(path) => {
+                println!("   ✅ Found Zellij: {}", path.display());
+            }
+            None => {
+                println!("   ⚠️  Zellij not found in PATH");
+                println!("   📥 Please install Zellij:");
+                println!("      cargo install zellij");
+                println!("      or visit: https://zellij.dev/documentation/installation");
+            }
         }
     }
 
@@ -280,7 +297,7 @@ fn which_zellij() -> Option<PathBuf> {
     which::which("zellij").ok()
 }
 
-fn create_config_file(path: &Path, plugin_path: &Path) -> Result<()> {
+fn create_config_file(path: &Path, plugin_path: &Path, fork_script_path: &Path) -> Result<()> {
     let config = format!(
         r#"// Bunshin (分身) - Auto-generated Configuration
 
@@ -298,7 +315,21 @@ keybinds clear-defaults=true {{
             SwitchToMode "normal";
         }}
         bind "c" {{
-            NewTab;
+            NewTab {{
+                layout {{
+                    pane size=1 borderless=true {{
+                        plugin location="tab-bar"
+                    }}
+                    pane split_direction="Vertical" {{
+                        pane {{
+                            command "{}"
+                        }}
+                    }}
+                    pane size=2 borderless=true {{
+                        plugin location="status-bar"
+                    }}
+                }}
+            }}
             SwitchToMode "normal";
         }}
         bind "d" {{
@@ -313,29 +344,33 @@ keybinds clear-defaults=true {{
     }}
 }}
 "#,
-        plugin_path.display()
+        plugin_path.display(),
+        fork_script_path.display()
     );
 
     fs::write(path, config)?;
     Ok(())
 }
 
-fn create_layout_file(path: &Path) -> Result<()> {
-    let layout = r#"layout {
-    pane size=1 borderless=true {
+fn create_layout_file(path: &Path, fork_script_path: &Path) -> Result<()> {
+    let layout = format!(
+        r#"layout {{
+    pane size=1 borderless=true {{
         plugin location="tab-bar"
-    }
-    pane split_direction="Vertical" {
-        pane {
-            command "claude"
+    }}
+    pane split_direction="Vertical" {{
+        pane {{
+            command "{}"
             // cwd defaults to current working directory
-        }
-    }
-    pane size=2 borderless=true {
+        }}
+    }}
+    pane size=2 borderless=true {{
         plugin location="status-bar"
-    }
-}
-"#;
+    }}
+}}
+"#,
+        fork_script_path.display()
+    );
 
     fs::write(path, layout)?;
     Ok(())

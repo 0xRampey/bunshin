@@ -68,7 +68,7 @@ That's it! On first run, Bunshin will:
 | Key | Action |
 |-----|--------|
 | `Ctrl+b s` | Open Bunshin session manager |
-| `Ctrl+b c` | Create new tab/window |
+| `Ctrl+b c` | **Create new tab/window** (🍴 forks conversation!) |
 | `Ctrl+b d` | Detach from session |
 
 ### Session Manager (Ctrl+b s)
@@ -143,15 +143,17 @@ Explore multiple solution paths from the same conversation starting point:
 
 1. **Start**: Launch `bunshin` - Claude starts in the first pane
 2. **Build context**: Have a conversation with Claude about your problem
-3. **Fork to explore**: Press `Ctrl+b s` → `C` to open a new pane
-   - The new pane automatically resumes from your first conversation!
+3. **Fork to explore**:
+   - Press `Ctrl+b c` to create a new tab with a forked conversation
+   - OR press `Ctrl+b s` → `C` to open a new pane with a forked conversation
+   - The new pane/tab automatically resumes from your first conversation!
    - Try a different approach while keeping the original conversation intact
-4. **Compare solutions**: Switch between panes to compare different approaches
+4. **Compare solutions**: Switch between panes/tabs to compare different approaches
 5. **Fork again**: Keep forking to explore even more alternatives
 
 **How it works:**
 - **First pane**: Starts a fresh Claude conversation
-- **Subsequent panes**: Automatically fork using `claude --resume <session-id>`
+- **Subsequent panes/tabs**: Automatically fork using `claude --resume <session-id>`
 - **Smart tracking**: Bunshin tracks your parent session per Zellij session
 - **Multiple explorations**: Try different solutions without losing your original context
 
