@@ -22,22 +22,79 @@ mkdir -p "${STATE_DIR}"
 ZELLIJ_SESSION="${ZELLIJ_SESSION_NAME:-default}"
 SESSION_STATE_FILE="${STATE_DIR}/${ZELLIJ_SESSION}.parent_session"
 PANE_COUNT_FILE="${STATE_DIR}/${ZELLIJ_SESSION}.pane_count"
+LOCK_FILE="${STATE_DIR}/${ZELLIJ_SESSION}.lock"
+DEBUG_LOG="${STATE_DIR}/${ZELLIJ_SESSION}.debug.log"
 
-# Function to get the most recent Claude session ID from the projects directory
+# Enable debug logging if BUNSHIN_DEBUG is set
+DEBUG="${BUNSHIN_DEBUG:-0}"
+
+# Debug logging function
+log_debug() {
+    if [[ "${DEBUG}" == "1" ]]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "${DEBUG_LOG}"
+    fi
+}
+
+# Function to acquire lock
+acquire_lock() {
+    local timeout=10
+    local count=0
+    while [[ -f "${LOCK_FILE}" ]] && [[ $count -lt $timeout ]]; do
+        sleep 0.5
+        count=$((count + 1))
+    done
+
+    if [[ $count -ge $timeout ]]; then
+        log_debug "Failed to acquire lock after ${timeout} seconds"
+        return 1
+    fi
+
+    echo $$ > "${LOCK_FILE}"
+    log_debug "Lock acquired by $$"
+    return 0
+}
+
+# Function to release lock
+release_lock() {
+    rm -f "${LOCK_FILE}"
+    log_debug "Lock released by $$"
+}
+
+# Ensure lock is released on exit
+trap release_lock EXIT
+
+# Function to get the most recent Claude session ID from current working directory
 get_most_recent_claude_session() {
-    local project_dir="${HOME}/.claude/projects"
+    local cwd=$(pwd)
+    # Encode the path for Claude's storage format
+    local encoded_path=$(echo "${cwd}" | sed 's/\//-/g')
+    local project_dir="${HOME}/.claude/projects/${encoded_path}"
+
+    log_debug "Looking for sessions in: ${project_dir}"
+
     if [[ ! -d "${project_dir}" ]]; then
+        log_debug "Project directory not found: ${project_dir}"
+        # Fallback to searching all projects
+        project_dir="${HOME}/.claude/projects"
+    fi
+
+    if [[ ! -d "${project_dir}" ]]; then
+        log_debug "No Claude projects directory found"
         echo ""
         return
     fi
 
     # Find the most recent .jsonl file (excluding agent-* files)
-    local recent_file=$(find "${project_dir}" -type f -name "*.jsonl" ! -name "agent-*.jsonl" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+    # Modified: only look at files from the last 60 seconds to avoid picking up old sessions
+    local recent_file=$(find "${project_dir}" -type f -name "*.jsonl" ! -name "agent-*.jsonl" -mmin -1 -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
 
     if [[ -n "${recent_file}" ]]; then
         # Extract the session ID from the filename (it's the UUID before .jsonl)
-        basename "${recent_file}" .jsonl
+        local session_id=$(basename "${recent_file}" .jsonl)
+        log_debug "Found recent session: ${session_id}"
+        echo "${session_id}"
     else
+        log_debug "No recent session files found"
         echo ""
     fi
 }
@@ -45,43 +102,52 @@ get_most_recent_claude_session() {
 # Function to save the parent session ID
 save_parent_session() {
     local session_id="$1"
+    log_debug "Saving parent session: ${session_id}"
     echo "${session_id}" > "${SESSION_STATE_FILE}"
 }
 
 # Function to get the parent session ID
 get_parent_session() {
     if [[ -f "${SESSION_STATE_FILE}" ]]; then
-        cat "${SESSION_STATE_FILE}"
+        local session_id=$(cat "${SESSION_STATE_FILE}")
+        log_debug "Retrieved parent session: ${session_id}"
+        echo "${session_id}"
     else
+        log_debug "No parent session file found"
         echo ""
     fi
 }
 
 # Function to increment pane count
 increment_pane_count() {
+    if ! acquire_lock; then
+        echo "1"
+        return
+    fi
+
     local count=0
     if [[ -f "${PANE_COUNT_FILE}" ]]; then
         count=$(cat "${PANE_COUNT_FILE}")
     fi
     count=$((count + 1))
     echo "${count}" > "${PANE_COUNT_FILE}"
-    echo "${count}"
-}
+    log_debug "Incremented pane count to: ${count}"
 
-# Function to get pane count
-get_pane_count() {
-    if [[ -f "${PANE_COUNT_FILE}" ]]; then
-        cat "${PANE_COUNT_FILE}"
-    else
-        echo "0"
-    fi
+    release_lock
+    echo "${count}"
 }
 
 # Main logic
 main() {
+    log_debug "=== Starting claude-fork wrapper ==="
+    log_debug "PWD: $(pwd)"
+    log_debug "ZELLIJ_SESSION: ${ZELLIJ_SESSION}"
+
     # Increment the pane count
     local pane_num
     pane_num=$(increment_pane_count)
+
+    log_debug "Current pane number: ${pane_num}"
 
     # Get parent session if it exists
     local parent_session
@@ -91,12 +157,15 @@ main() {
         # This is the first pane - launch Claude normally
         echo "🌱 Launching first Claude pane in this session..."
         echo "   (Subsequent panes will fork from this conversation)"
+        echo ""
+        log_debug "First pane - launching Claude normally"
 
         # Launch Claude normally, but save its session ID for forking
         # We'll capture the session ID after Claude initializes
         (
             # Wait for Claude to initialize and create its session file
-            sleep 3
+            # Increased wait time from 3 to 7 seconds for more reliable capture
+            sleep 7
 
             # Get the most recent Claude session
             local session_id
@@ -104,31 +173,60 @@ main() {
 
             if [[ -n "${session_id}" ]]; then
                 save_parent_session "${session_id}"
+                log_debug "Background process: Saved parent session ${session_id}"
+            else
+                log_debug "Background process: No session ID found after 7 seconds"
             fi
         ) >/dev/null 2>&1 &
 
         exec claude "$@"
     else
         # This is a subsequent pane - try to fork the conversation
+        log_debug "Subsequent pane (#${pane_num}) - attempting to fork"
+
+        # Wait a bit for the first pane to save the session ID
+        local max_wait=15
+        local waited=0
+        while [[ -z "${parent_session}" ]] && [[ $waited -lt $max_wait ]]; do
+            sleep 1
+            waited=$((waited + 1))
+            parent_session=$(get_parent_session)
+            log_debug "Waiting for parent session... (${waited}/${max_wait})"
+        done
+
         if [[ -z "${parent_session}" ]]; then
-            # Parent session not found yet, try to get it
+            # Parent session not found yet, try to get it directly
+            log_debug "Parent session still not found, trying direct lookup"
             parent_session=$(get_most_recent_claude_session)
 
             if [[ -n "${parent_session}" ]]; then
                 save_parent_session "${parent_session}"
+                log_debug "Found and saved parent session via direct lookup: ${parent_session}"
             fi
         fi
 
         if [[ -n "${parent_session}" ]]; then
-            # Fork the conversation
-            echo "🍴 Forking conversation from session: ${parent_session}"
-            echo "   (Pane #${pane_num} - continuing from where you left off)"
-            echo ""
+            # Verify the session file exists
+            local session_pattern="${HOME}/.claude/projects/*/${parent_session}.jsonl"
+            if ls ${session_pattern} 1> /dev/null 2>&1; then
+                # Fork the conversation
+                echo "🍴 Forking conversation from session: ${parent_session}"
+                echo "   (Pane #${pane_num} - exploring a different path)"
+                echo ""
+                log_debug "Forking with: claude --resume ${parent_session}"
 
-            exec claude --resume "${parent_session}" "$@"
+                exec claude --resume "${parent_session}" "$@"
+            else
+                log_debug "Session file not found for: ${parent_session}"
+                echo "⚠️  Session file not found, launching new conversation..."
+                exec claude "$@"
+            fi
         else
             # Fallback: launch normally if we couldn't find a parent session
+            log_debug "No parent session found after all attempts, launching new conversation"
             echo "⚠️  Could not find parent session, launching new conversation..."
+            echo "   Tip: Try sending a message in the first pane before forking"
+            echo ""
             exec claude "$@"
         fi
     fi
