@@ -8,6 +8,136 @@ use std::process::Command;
 const PLUGIN_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bunshin.wasm"));
 const ZELLIJ_VERSION: &str = "0.43.1";
 
+const CLAUDE_FORK_SCRIPT: &str = r#"#!/bin/bash
+# Claude conversation forking wrapper for bunshin
+# This script manages conversation forking when opening new panes in a bunshin session
+
+set -euo pipefail
+
+# State directory for tracking session IDs
+STATE_DIR="${HOME}/.bunshin/state"
+mkdir -p "${STATE_DIR}"
+
+# Get the current Zellij session name to namespace our state files
+ZELLIJ_SESSION="${ZELLIJ_SESSION_NAME:-default}"
+SESSION_STATE_FILE="${STATE_DIR}/${ZELLIJ_SESSION}.parent_session"
+PANE_COUNT_FILE="${STATE_DIR}/${ZELLIJ_SESSION}.pane_count"
+
+# Function to get the most recent Claude session ID from the projects directory
+get_most_recent_claude_session() {
+    local project_dir="${HOME}/.claude/projects"
+    if [[ ! -d "${project_dir}" ]]; then
+        echo ""
+        return
+    fi
+
+    # Find the most recent .jsonl file (excluding agent-* files)
+    local recent_file=$(find "${project_dir}" -type f -name "*.jsonl" ! -name "agent-*.jsonl" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+
+    if [[ -n "${recent_file}" ]]; then
+        # Extract the session ID from the filename (it's the UUID before .jsonl)
+        basename "${recent_file}" .jsonl
+    else
+        echo ""
+    fi
+}
+
+# Function to save the parent session ID
+save_parent_session() {
+    local session_id="$1"
+    echo "${session_id}" > "${SESSION_STATE_FILE}"
+}
+
+# Function to get the parent session ID
+get_parent_session() {
+    if [[ -f "${SESSION_STATE_FILE}" ]]; then
+        cat "${SESSION_STATE_FILE}"
+    else
+        echo ""
+    fi
+}
+
+# Function to increment pane count
+increment_pane_count() {
+    local count=0
+    if [[ -f "${PANE_COUNT_FILE}" ]]; then
+        count=$(cat "${PANE_COUNT_FILE}")
+    fi
+    count=$((count + 1))
+    echo "${count}" > "${PANE_COUNT_FILE}"
+    echo "${count}"
+}
+
+# Function to get pane count
+get_pane_count() {
+    if [[ -f "${PANE_COUNT_FILE}" ]]; then
+        cat "${PANE_COUNT_FILE}"
+    else
+        echo "0"
+    fi
+}
+
+# Main logic
+main() {
+    # Increment the pane count
+    local pane_num
+    pane_num=$(increment_pane_count)
+
+    # Get parent session if it exists
+    local parent_session
+    parent_session=$(get_parent_session)
+
+    if [[ "${pane_num}" -eq 1 ]]; then
+        # This is the first pane - launch Claude normally
+        echo "🌱 Launching first Claude pane in this session..."
+        echo "   (Subsequent panes will fork from this conversation)"
+
+        # Launch Claude normally, but save its session ID for forking
+        # We'll capture the session ID after Claude initializes
+        (
+            # Wait for Claude to initialize and create its session file
+            sleep 3
+
+            # Get the most recent Claude session
+            local session_id
+            session_id=$(get_most_recent_claude_session)
+
+            if [[ -n "${session_id}" ]]; then
+                save_parent_session "${session_id}"
+            fi
+        ) >/dev/null 2>&1 &
+
+        exec claude "$@"
+    else
+        # This is a subsequent pane - try to fork the conversation
+        if [[ -z "${parent_session}" ]]; then
+            # Parent session not found yet, try to get it
+            parent_session=$(get_most_recent_claude_session)
+
+            if [[ -n "${parent_session}" ]]; then
+                save_parent_session "${parent_session}"
+            fi
+        fi
+
+        if [[ -n "${parent_session}" ]]; then
+            # Fork the conversation
+            echo "🍴 Forking conversation from session: ${parent_session}"
+            echo "   (Pane #${pane_num} - continuing from where you left off)"
+            echo ""
+
+            exec claude --resume "${parent_session}" "$@"
+        else
+            # Fallback: launch normally if we couldn't find a parent session
+            echo "⚠️  Could not find parent session, launching new conversation..."
+            exec claude "$@"
+        fi
+    fi
+}
+
+# Run main function
+main "$@"
+"#;
+
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
 
@@ -56,11 +186,19 @@ Keybindings:
   Ctrl+b d  Detach from session
 
 Inside session manager:
-  C         Spawn Claude in new pane
-  A         Spawn Claude in new tab
+  C         Spawn Claude in new pane (🍴 forks conversation!)
+  A         Spawn Claude in new tab (🍴 forks conversation!)
   N         Create new session with Claude
   ?         Show help
   q         Close manager
+
+🌟 Conversation Forking:
+  When you open a new pane/tab with 'C' or 'A', Bunshin automatically
+  forks the conversation from the first pane, allowing you to explore
+  different paths from the same starting point!
+
+  - First pane: Starts fresh conversation
+  - Subsequent panes: Fork from the first pane's conversation
 
 Examples:
   bunshin                    # Launch (Claude auto-starts)
@@ -86,9 +224,10 @@ fn setup() -> Result<()> {
     let plugin_path = plugin_dir.join("bunshin.wasm");
     let config_path = config_dir.join("config.kdl");
     let layout_path = config_dir.join("layout.kdl");
+    let fork_script_path = bin_dir.join("claude-fork");
 
     // Check if setup is needed
-    if plugin_path.exists() && config_path.exists() && layout_path.exists() {
+    if plugin_path.exists() && config_path.exists() && layout_path.exists() && fork_script_path.exists() {
         // Setup already done, skip silently
         return Ok(());
     }
@@ -114,6 +253,11 @@ fn setup() -> Result<()> {
     // Create layout file
     create_layout_file(&layout_path)?;
     println!("   ✅ Layout created: {}", layout_path.display());
+
+    // Install claude-fork wrapper script
+    println!("🍴 Installing conversation fork wrapper...");
+    install_claude_fork_script(&fork_script_path)?;
+    println!("   ✅ Fork wrapper installed: {}", fork_script_path.display());
 
     // Check for Zellij
     println!("🔍 Checking for Zellij...");
@@ -194,6 +338,20 @@ fn create_layout_file(path: &Path) -> Result<()> {
 "#;
 
     fs::write(path, layout)?;
+    Ok(())
+}
+
+fn install_claude_fork_script(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    // Write the script
+    fs::write(path, CLAUDE_FORK_SCRIPT)?;
+
+    // Make it executable
+    let mut perms = fs::metadata(path)?.permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(path, perms)?;
+
     Ok(())
 }
 

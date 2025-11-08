@@ -403,8 +403,9 @@ impl State {
 
     fn launch_claude_pane(&self) {
         // Launch Claude Code in a new pane in the current session
+        // Use the claude-fork wrapper to enable conversation forking
         let command = CommandToRun {
-            path: "claude".into(),
+            path: format!("{}/.bunshin/bin/claude-fork", std::env::var("HOME").unwrap_or_else(|_| "/root".to_string())).into(),
             args: vec![],
             cwd: None,
         };
@@ -414,8 +415,9 @@ impl State {
 
     fn launch_claude_tab(&self) {
         // Launch Claude Code in a new tab
+        // Use the claude-fork wrapper to enable conversation forking
         let command = CommandToRun {
-            path: "claude".into(),
+            path: format!("{}/.bunshin/bin/claude-fork", std::env::var("HOME").unwrap_or_else(|_| "/root".to_string())).into(),
             args: vec![],
             cwd: None,
         };
@@ -433,7 +435,7 @@ impl State {
         // Create the session first
         switch_session(Some(&session_name));
 
-        // Then launch Claude in it
+        // Then launch Claude in it (use regular claude for new sessions, not fork wrapper)
         let command = CommandToRun {
             path: "claude".into(),
             args: vec![],

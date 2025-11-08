@@ -9,6 +9,7 @@
 - **One-Command Install**: `cargo install bunshin` → done!
 - **Auto-Setup**: Automatically installs and configures everything on first run
 - **Claude Auto-Start**: Launches Claude Code instantly in your current directory
+- **🍴 Conversation Forking**: Automatically fork Claude conversations when opening new panes
 - **Session Management**: tmux-style session orchestrator built into Zellij
 - **Multi-Instance Support**: Run multiple Claude instances across sessions
 - **Embedded Assets**: Plugin and configs bundled in the binary
@@ -94,8 +95,8 @@ That's it! On first run, Bunshin will:
 #### Claude Code Orchestration 🤖
 | Key | Action |
 |-----|--------|
-| `C` | **Launch Claude in new pane** (in current session) |
-| `A` | **Launch Claude in new tab** |
+| `C` | **Launch Claude in new pane** (🍴 forks conversation!) |
+| `A` | **Launch Claude in new tab** (🍴 forks conversation!) |
 | `N` | **Create new session with Claude** (auto-named) |
 
 #### Other
@@ -136,6 +137,24 @@ bunshin --version
 2. Press `Ctrl+b s` → `A` to create a new tab with Claude
 3. Switch between tabs with `Ctrl+b c`
 
+### 🍴 Conversation Forking Workflow
+
+Explore multiple solution paths from the same conversation starting point:
+
+1. **Start**: Launch `bunshin` - Claude starts in the first pane
+2. **Build context**: Have a conversation with Claude about your problem
+3. **Fork to explore**: Press `Ctrl+b s` → `C` to open a new pane
+   - The new pane automatically resumes from your first conversation!
+   - Try a different approach while keeping the original conversation intact
+4. **Compare solutions**: Switch between panes to compare different approaches
+5. **Fork again**: Keep forking to explore even more alternatives
+
+**How it works:**
+- **First pane**: Starts a fresh Claude conversation
+- **Subsequent panes**: Automatically fork using `claude --resume <session-id>`
+- **Smart tracking**: Bunshin tracks your parent session per Zellij session
+- **Multiple explorations**: Try different solutions without losing your original context
+
 ## 🏗️ Architecture
 
 ```
@@ -162,9 +181,13 @@ bunshin/
 ~/.bunshin/
 ├── plugins/
 │   └── bunshin.wasm              # Embedded session manager plugin
-└── config/
-    ├── config.kdl                # Zellij keybindings config
-    └── layout.kdl                # Claude auto-start layout
+├── config/
+│   ├── config.kdl                # Zellij keybindings config
+│   └── layout.kdl                # Claude auto-start layout
+├── bin/
+│   └── claude-fork               # Conversation forking wrapper script
+└── state/
+    └── <session-name>.*          # Session state tracking for forking
 ```
 
 ## 🔧 Configuration
