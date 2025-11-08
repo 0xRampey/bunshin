@@ -1,5 +1,6 @@
 # Rust
 /target
+plugin/target/
 Cargo.lock
 
 # IDE
