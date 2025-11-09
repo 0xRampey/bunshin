@@ -275,7 +275,11 @@ Inside session manager:
 Examples:
   bunshin                    # Launch (Claude auto-starts)
 
-Note: On first run, Bunshin automatically extracts configs to ~/.bunshin/
+Note: On first run, Bunshin automatically:
+      - Extracts configs to ~/.bunshin/
+      - Installs SessionStart hook for instant conversation forking
+      - Configures Claude to use the hook in ~/.claude/settings.json
+
       You can edit these files to customize your setup.
 
 Documentation: https://github.com/0xRampey/bunshin
@@ -347,13 +351,25 @@ fn setup() -> Result<()> {
         println!("⚡ Installing SessionStart hook for instant session capture...");
         install_session_capture_hook(&hook_path)?;
         println!("   ✅ SessionStart hook installed: {}", hook_path.display());
+        println!("");
+        println!("   ℹ️  What is the SessionStart hook?");
+        println!("   The hook captures Claude session IDs instantly when Claude starts.");
+        println!("   This enables conversation forking - when you create a new tab with");
+        println!("   Ctrl+b c, it forks from your first pane's conversation automatically!");
+        println!("");
     }
 
     // Configure Claude to use the SessionStart hook
     println!("🔧 Configuring Claude to use bunshin SessionStart hook...");
     match configure_claude_hook(&hook_path) {
-        Ok(_) => println!("   ✅ Claude hook configured successfully"),
-        Err(e) => println!("   ⚠️  Warning: Could not configure Claude hook: {}", e),
+        Ok(_) => {
+            println!("   ✅ Claude hook configured in ~/.claude/settings.json");
+            println!("   ℹ️  Conversation forking is now enabled!");
+        }
+        Err(e) => {
+            println!("   ⚠️  Warning: Could not configure Claude hook: {}", e);
+            println!("   You may need to manually add the hook to ~/.claude/settings.json");
+        }
     }
 
     // Check for Zellij
