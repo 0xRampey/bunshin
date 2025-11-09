@@ -1,4 +1,7 @@
 use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 use zellij_tile::prelude::*;
 
 #[derive(Default)]
@@ -11,6 +14,7 @@ struct State {
     new_session_name: Option<String>,
     rename_input: Option<String>,
     error_message: Option<String>,
+    session_dirs: HashMap<String, String>, // session_name -> working_directory
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -41,6 +45,7 @@ impl ZellijPlugin for State {
             PermissionType::ChangeApplicationState,
             PermissionType::OpenTerminalsOrPlugins,
             PermissionType::RunCommands,
+            PermissionType::FullHdAccess,
         ]);
     }
 
@@ -56,6 +61,8 @@ impl ZellijPlugin for State {
                 if !self.sessions.is_empty() && self.selected_index >= self.sessions.len() {
                     self.selected_index = self.sessions.len() - 1;
                 }
+                // Reload session directories
+                self.load_session_dirs();
                 should_render = true;
             }
             Event::ModeUpdate(mode_info) => {
@@ -401,6 +408,21 @@ impl State {
             .unwrap_or(false)
     }
 
+    fn load_session_dirs(&mut self) {
+        // Read session directories from ~/.bunshin/session-dirs.json
+        if let Some(home) = std::env::var_os("HOME") {
+            let mut path = PathBuf::from(home);
+            path.push(".bunshin");
+            path.push("session-dirs.json");
+
+            if let Ok(contents) = fs::read_to_string(&path) {
+                if let Ok(dirs) = serde_json::from_str::<HashMap<String, String>>(&contents) {
+                    self.session_dirs = dirs;
+                }
+            }
+        }
+    }
+
     fn launch_claude_pane(&self) {
         // Launch Claude Code in a new pane in the current session
         let command = CommandToRun {
@@ -476,14 +498,17 @@ impl State {
         // Headers
         let header_y = 3;
         let name_col = 2;
-        let windows_col = cols.saturating_sub(15);
+        let windows_col = cols.saturating_sub(50);
+        let cwd_col = windows_col + 10;
 
         let header = format!(
-            "{:<width1$}  {:<width2$}",
+            "{:<width1$}  {:<width2$}  {:<width3$}",
             "Session",
             "Windows",
+            "CWD",
             width1 = windows_col.saturating_sub(name_col + 2).max(10),
             width2 = 7,
+            width3 = cols.saturating_sub(cwd_col + 2).max(10),
         );
         let header_text = Text::new(&header).color_range(1, 0..header.len());
         print_text_with_coordinates(header_text, name_col, header_y, None, None);
@@ -514,12 +539,26 @@ impl State {
 
             let windows_count = session.tabs.len();
 
+            // Get CWD from session_dirs, truncate if too long
+            let cwd = self.session_dirs.get(&session.name)
+                .map(|path| {
+                    let max_width = cols.saturating_sub(cwd_col + 2).max(10);
+                    if path.len() > max_width {
+                        format!("...{}", &path[path.len().saturating_sub(max_width - 3)..])
+                    } else {
+                        path.clone()
+                    }
+                })
+                .unwrap_or_else(|| "N/A".to_string());
+
             let line = format!(
-                "{:<width1$}  {:<width2$}",
+                "{:<width1$}  {:<width2$}  {:<width3$}",
                 name_display,
                 windows_count,
+                cwd,
                 width1 = windows_col.saturating_sub(name_col + 2).max(10),
                 width2 = 7,
+                width3 = cols.saturating_sub(cwd_col + 2).max(10),
             );
 
             let mut text = Text::new(&line);
