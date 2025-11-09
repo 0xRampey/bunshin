@@ -169,7 +169,7 @@ main() {
 main "$@"
 "#;
 
-const SESSION_CAPTURE_HOOK: &str = r#"#\!/bin/bash
+const SESSION_CAPTURE_HOOK: &str = r#"#!/bin/bash
 # Bunshin SessionStart hook - captures session ID instantly
 # This eliminates the 10-second delay from the fork wrapper
 set -euo pipefail
