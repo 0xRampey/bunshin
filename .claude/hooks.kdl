@@ -1,0 +1,7 @@
+hooks {
+    // Track session working directory on startup
+    SessionStart {
+        type "command"
+        command ".claude/hooks/track-session-dir.sh"
+    }
+}
