@@ -214,6 +214,9 @@ fn launch() -> Result<()> {
     let config_path = bunshin_dir.join("config/config.kdl");
     let layout_path = bunshin_dir.join("config/layout.kdl");
 
+    // Setup session tracking hook in current directory
+    setup_session_tracking_hook()?;
+
     // Launch Zellij with Bunshin configuration
     let mut cmd = Command::new(zellij_path);
     cmd.arg("--config").arg(&config_path);
@@ -227,6 +230,108 @@ fn launch() -> Result<()> {
     if !status.success() {
         anyhow::bail!("Zellij exited with error");
     }
+
+    Ok(())
+}
+
+fn setup_session_tracking_hook() -> Result<()> {
+    let home = dirs::home_dir().context("Could not find home directory")?;
+    let bunshin_dir = home.join(".bunshin");
+    let hooks_dir = bunshin_dir.join("hooks");
+    let track_script = hooks_dir.join("track-session-dir.sh");
+
+    // Create hooks directory in ~/.bunshin/
+    fs::create_dir_all(&hooks_dir)?;
+
+    // Create tracking script
+    let script_content = r#"#!/bin/bash
+# Bunshin SessionStart Hook: Track working directory for each Zellij session
+
+# Ensure the bunshin directory exists
+mkdir -p ~/.bunshin
+
+# Get the session directories file
+SESSION_DIRS_FILE="$HOME/.bunshin/session-dirs.json"
+
+# Initialize the file if it doesn't exist
+if [ ! -f "$SESSION_DIRS_FILE" ]; then
+    echo '{}' > "$SESSION_DIRS_FILE"
+fi
+
+# Get current session name and project directory
+ZELLIJ_SESSION="${ZELLIJ_SESSION_NAME:-unknown}"
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
+
+# Update the JSON file with the session -> directory mapping
+# Use jq if available, otherwise use a simple sed approach
+if command -v jq &> /dev/null; then
+    # Use jq for robust JSON manipulation
+    jq --arg session "$ZELLIJ_SESSION" --arg dir "$PROJECT_DIR" \
+        '.[$session] = $dir' "$SESSION_DIRS_FILE" > "${SESSION_DIRS_FILE}.tmp" && \
+        mv "${SESSION_DIRS_FILE}.tmp" "$SESSION_DIRS_FILE"
+else
+    # Fallback: simple approach without jq (less robust but works)
+    # Read existing content, remove the session if it exists, add new entry
+    python3 -c "
+import json
+import sys
+try:
+    with open('$SESSION_DIRS_FILE', 'r') as f:
+        data = json.load(f)
+except:
+    data = {}
+data['$ZELLIJ_SESSION'] = '$PROJECT_DIR'
+with open('$SESSION_DIRS_FILE', 'w') as f:
+    json.dump(data, f, indent=2)
+"
+fi
+
+# Return success to allow the session to start
+exit 0
+"#;
+    fs::write(&track_script, script_content)?;
+
+    // Make script executable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&track_script)?.permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&track_script, perms)?;
+    }
+
+    // Setup ~/.claude/settings.json
+    let claude_dir = home.join(".claude");
+    let settings_file = claude_dir.join("settings.json");
+
+    fs::create_dir_all(&claude_dir)?;
+
+    // Read existing settings or create new
+    let mut settings: serde_json::Value = if settings_file.exists() {
+        let content = fs::read_to_string(&settings_file)?;
+        serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    // Add SessionStart hook
+    let hook_config = serde_json::json!({
+        "hooks": [{
+            "type": "command",
+            "command": track_script.to_str().unwrap()
+        }]
+    });
+
+    if let Some(obj) = settings.as_object_mut() {
+        let hooks = obj.entry("hooks").or_insert(serde_json::json!({}));
+        if let Some(hooks_obj) = hooks.as_object_mut() {
+            hooks_obj.insert("SessionStart".to_string(), serde_json::json!([hook_config]));
+        }
+    }
+
+    // Write settings.json
+    let settings_json = serde_json::to_string_pretty(&settings)?;
+    fs::write(&settings_file, settings_json)?;
 
     Ok(())
 }
