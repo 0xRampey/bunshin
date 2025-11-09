@@ -476,20 +476,14 @@ impl State {
         // Headers
         let header_y = 3;
         let name_col = 2;
-        let windows_col = cols.saturating_sub(40);
-        let _panes_col = cols.saturating_sub(30);
-        let _clients_col = cols.saturating_sub(20);
+        let windows_col = cols.saturating_sub(15);
 
         let header = format!(
-            "{:<width1$}  {:<width2$}  {:<width3$}  {:<width4$}",
+            "{:<width1$}  {:<width2$}",
             "Session",
             "Windows",
-            "Panes",
-            "Clients",
             width1 = windows_col.saturating_sub(name_col + 2).max(10),
             width2 = 7,
-            width3 = 5,
-            width4 = 7,
         );
         let header_text = Text::new(&header).color_range(1, 0..header.len());
         print_text_with_coordinates(header_text, name_col, header_y, None, None);
@@ -519,19 +513,13 @@ impl State {
             let name_display = format!("{} {}", session_indicator, session.name);
 
             let windows_count = session.tabs.len();
-            let panes_count: usize = session.panes.panes.len();
-            let clients_count = session.connected_clients;
 
             let line = format!(
-                "{:<width1$}  {:<width2$}  {:<width3$}  {:<width4$}",
+                "{:<width1$}  {:<width2$}",
                 name_display,
                 windows_count,
-                panes_count,
-                clients_count,
                 width1 = windows_col.saturating_sub(name_col + 2).max(10),
                 width2 = 7,
-                width3 = 5,
-                width4 = 7,
             );
 
             let mut text = Text::new(&line);

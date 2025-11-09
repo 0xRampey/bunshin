@@ -1,0 +1,12 @@
+/home/user/bunshin/plugin/target/wasm32-wasip1/debug/deps/backtrace-3866e61cbe5f1b02.d: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/backtrace/mod.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/symbolize/mod.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/types.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/print.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/backtrace/noop.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/symbolize/noop.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/capture.rs
+
+/home/user/bunshin/plugin/target/wasm32-wasip1/debug/deps/libbacktrace-3866e61cbe5f1b02.rmeta: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/backtrace/mod.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/symbolize/mod.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/types.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/print.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/backtrace/noop.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/symbolize/noop.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/capture.rs
+
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/lib.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/backtrace/mod.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/symbolize/mod.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/types.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/print.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/backtrace/noop.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/symbolize/noop.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/backtrace-0.3.76/src/capture.rs:

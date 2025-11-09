@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["STATE"],"enum":["Mode"],"fn":["load","main","pipe","plugin_version","render","update"],"struct":["State"]};
