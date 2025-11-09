@@ -495,81 +495,75 @@ impl State {
             return;
         }
 
-        // Headers
-        let header_y = 3;
-        let name_col = 2;
-        let windows_col = cols.saturating_sub(50);
-        let cwd_col = windows_col + 10;
-
-        let header = format!(
-            "{:<width1$}  {:<width2$}  {:<width3$}",
-            "Session",
-            "Windows",
-            "CWD",
-            width1 = windows_col.saturating_sub(name_col + 2).max(10),
-            width2 = 7,
-            width3 = cols.saturating_sub(cwd_col + 2).max(10),
-        );
-        let header_text = Text::new(&header).color_range(1, 0..header.len());
-        print_text_with_coordinates(header_text, name_col, header_y, None, None);
-
-        // Separator
-        let separator = "─".repeat(cols.saturating_sub(4));
-        print_text_with_coordinates(Text::new(&separator), 2, header_y + 1, None, None);
-
-        // Session list
-        let list_start_y = header_y + 2;
-        let max_visible_sessions = rows.saturating_sub(list_start_y + 3);
-
-        let start_idx = if self.selected_index >= max_visible_sessions {
-            self.selected_index.saturating_sub(max_visible_sessions - 1)
-        } else {
-            0
-        };
-        let end_idx = (start_idx + max_visible_sessions).min(self.sessions.len());
-
-        for (i, session) in self.sessions[start_idx..end_idx].iter().enumerate() {
-            let row = list_start_y + i;
-            let global_idx = start_idx + i;
-            let is_selected = global_idx == self.selected_index;
-            let is_current = session.is_current_session;
-
-            let session_indicator = if is_current { "*" } else { " " };
-            let name_display = format!("{} {}", session_indicator, session.name);
-
-            let windows_count = session.tabs.len();
-
-            // Get CWD from session_dirs, truncate if too long
+        // Group sessions by CWD
+        let mut cwd_groups: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        for (idx, session) in self.sessions.iter().enumerate() {
             let cwd = self.session_dirs.get(&session.name)
-                .map(|path| {
-                    let max_width = cols.saturating_sub(cwd_col + 2).max(10);
-                    if path.len() > max_width {
-                        format!("...{}", &path[path.len().saturating_sub(max_width - 3)..])
-                    } else {
-                        path.clone()
-                    }
-                })
+                .cloned()
                 .unwrap_or_else(|| "N/A".to_string());
+            cwd_groups.entry(cwd).or_insert_with(Vec::new).push(idx);
+        }
 
-            let line = format!(
-                "{:<width1$}  {:<width2$}  {:<width3$}",
-                name_display,
-                windows_count,
-                cwd,
-                width1 = windows_col.saturating_sub(name_col + 2).max(10),
-                width2 = 7,
-                width3 = cols.saturating_sub(cwd_col + 2).max(10),
-            );
+        // Render grouped sessions
+        let list_start_y = 3;
+        let mut current_y = list_start_y;
+        let max_y = rows.saturating_sub(3);
 
-            let mut text = Text::new(&line);
-            if is_selected {
-                text = text.selected();
-            }
-            if is_current {
-                text = text.color_range(2, 0..name_display.len());
+        for (cwd, session_indices) in cwd_groups.iter() {
+            if current_y >= max_y {
+                break;
             }
 
-            print_text_with_coordinates(text, name_col, row, None, None);
+            // Render CWD header
+            let cwd_display = if cwd.len() > cols.saturating_sub(4) {
+                format!("...{}", &cwd[cwd.len().saturating_sub(cols - 7)..])
+            } else {
+                cwd.clone()
+            };
+            let cwd_text = Text::new(&cwd_display).color_range(3, 0..cwd_display.len());
+            print_text_with_coordinates(cwd_text, 2, current_y, None, None);
+            current_y += 1;
+
+            // Render sessions in this group (indented)
+            for &session_idx in session_indices {
+                if current_y >= max_y {
+                    break;
+                }
+
+                let session = &self.sessions[session_idx];
+                let is_selected = session_idx == self.selected_index;
+                let is_current = session.is_current_session;
+
+                let session_indicator = if is_current { "*" } else { " " };
+                let windows_count = session.tabs.len();
+                let windows_text = if windows_count == 1 {
+                    "window".to_string()
+                } else {
+                    format!("{} windows", windows_count)
+                };
+
+                let line = format!(
+                    "  {}{:<width$}  {}",
+                    session_indicator,
+                    session.name,
+                    windows_text,
+                    width = cols.saturating_sub(20).max(10),
+                );
+
+                let mut text = Text::new(&line);
+                if is_selected {
+                    text = text.selected();
+                }
+                if is_current {
+                    text = text.color_range(2, 2..2 + session.name.len() + 1);
+                }
+
+                print_text_with_coordinates(text, 2, current_y, None, None);
+                current_y += 1;
+            }
+
+            // Add spacing between groups
+            current_y += 1;
         }
 
         // Status line
