@@ -10,7 +10,7 @@ const ZELLIJ_VERSION: &str = "0.43.1";
 
 const CLAUDE_FORK_SCRIPT: &str = r#"
 # Claude conversation forking wrapper for bunshin
-# This script manages conversation forking when opening new panes in a bunshin session
+# Works with SessionStart hook for instant session ID capture
 
 set -euo pipefail
 
@@ -24,7 +24,6 @@ SESSION_STATE_FILE="${STATE_DIR}/${ZELLIJ_SESSION}.parent_session"
 PANE_COUNT_FILE="${STATE_DIR}/${ZELLIJ_SESSION}.pane_count"
 LOCK_FILE="${STATE_DIR}/${ZELLIJ_SESSION}.lock"
 DEBUG_LOG="${STATE_DIR}/${ZELLIJ_SESSION}.debug.log"
-START_TIME_FILE="${STATE_DIR}/${ZELLIJ_SESSION}.start_time"
 
 # Enable debug logging if BUNSHIN_DEBUG is set
 DEBUG="${BUNSHIN_DEBUG:-0}"
@@ -63,56 +62,6 @@ release_lock() {
 
 # Ensure lock is released on exit
 trap release_lock EXIT
-
-# Function to get Claude session created AFTER a specific timestamp
-get_claude_session_after_timestamp() {
-    local start_timestamp="$1"
-    local cwd=$(pwd)
-    # Encode the path for Claude's storage format
-    local encoded_path=$(echo "${cwd}" | sed 's/\//-/g')
-    local project_dir="${HOME}/.claude/projects/${encoded_path}"
-
-    log_debug "Looking for sessions created after timestamp ${start_timestamp} in: ${project_dir}"
-
-    if [[ ! -d "${project_dir}" ]]; then
-        log_debug "Project directory not found: ${project_dir}"
-        # Fallback to searching all projects
-        project_dir="${HOME}/.claude/projects"
-    fi
-
-    if [[ ! -d "${project_dir}" ]]; then
-        log_debug "No Claude projects directory found"
-        echo ""
-        return
-    fi
-
-    # Find .jsonl files (excluding agent-*) created/modified after our start time
-    local recent_file=""
-    while IFS= read -r -d '' file; do
-        local file_mtime=$(stat -c '%Y' "$file" 2>/dev/null || echo "0")
-        if [[ "$file_mtime" -gt "$start_timestamp" ]]; then
-            recent_file="$file"
-            log_debug "Found file: $file (mtime: $file_mtime > start: $start_timestamp)"
-            break
-        fi
-    done < <(find "${project_dir}" -type f -name "*.jsonl" ! -name "agent-*.jsonl" -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null)
-
-    if [[ -n "${recent_file}" ]]; then
-        local session_id=$(basename "${recent_file}" .jsonl)
-        log_debug "Found session created after start time: ${session_id}"
-        echo "${session_id}"
-    else
-        log_debug "No session files found created after timestamp ${start_timestamp}"
-        echo ""
-    fi
-}
-
-# Function to save the parent session ID
-save_parent_session() {
-    local session_id="$1"
-    log_debug "Saving parent session: ${session_id}"
-    echo "${session_id}" > "${SESSION_STATE_FILE}"
-}
 
 # Function to get the parent session ID
 get_parent_session() {
@@ -157,77 +106,48 @@ main() {
 
     log_debug "Current pane number: ${pane_num}"
 
-    # Get parent session if it exists
-    local parent_session
-    parent_session=$(get_parent_session)
-
     if [[ "${pane_num}" -eq 1 ]]; then
         # This is the first pane - launch Claude normally
         echo "🌱 Launching first Claude pane in this session..."
-        echo "   (Subsequent panes will fork from this conversation)"
+        echo "   (SessionStart hook will capture session ID instantly)"
         echo ""
         log_debug "First pane - launching Claude normally"
+        log_debug "SessionStart hook will save session ID to: ${SESSION_STATE_FILE}"
 
-        # Record the start time BEFORE launching Claude
-        local start_time=$(date +%s)
-        echo "${start_time}" > "${START_TIME_FILE}"
-        log_debug "Recorded start time: ${start_time}"
-
-        # Launch Claude normally, but save its session ID for forking
-        # We'll capture the session ID after Claude initializes
-        (
-            # Wait for Claude to initialize and create its session file
-            sleep 10
-
-            # Get the session created after our start time
-            local session_id
-            session_id=$(get_claude_session_after_timestamp "${start_time}")
-
-            if [[ -n "${session_id}" ]]; then
-                save_parent_session "${session_id}"
-                log_debug "Background process: Saved parent session ${session_id}"
-            else
-                log_debug "Background process: No new session ID found after start time ${start_time}"
-            fi
-        ) >/dev/null 2>&1 &
-
+        # No background process needed! SessionStart hook handles it instantly.
         exec claude "$@"
     else
-        # This is a subsequent pane - try to fork the conversation
+        # This is a subsequent pane - fork the conversation
         log_debug "Subsequent pane (#${pane_num}) - attempting to fork"
 
-        # Wait a bit for the first pane to save the session ID
-        local max_wait=20
-        local waited=0
-        while [[ -z "${parent_session}" ]] && [[ $waited -lt $max_wait ]]; do
-            sleep 1
-            waited=$((waited + 1))
-            parent_session=$(get_parent_session)
-            log_debug "Waiting for parent session... (${waited}/${max_wait})"
-        done
+        # Get parent session (should already be saved by SessionStart hook)
+        local parent_session
+        parent_session=$(get_parent_session)
 
-        if [[ -z "${parent_session}" ]] && [[ -f "${START_TIME_FILE}" ]]; then
-            # Parent session not found yet, try to get it directly using start time
-            local start_time=$(cat "${START_TIME_FILE}")
-            log_debug "Parent session still not found, trying direct lookup after timestamp ${start_time}"
-            parent_session=$(get_claude_session_after_timestamp "${start_time}")
-
-            if [[ -n "${parent_session}" ]]; then
-                save_parent_session "${parent_session}"
-                log_debug "Found and saved parent session via direct lookup: ${parent_session}"
-            fi
+        # Wait briefly if not found yet (hook should be instant though)
+        if [[ -z "${parent_session}" ]]; then
+            log_debug "Parent session not found, waiting briefly..."
+            local waited=0
+            while [[ -z "${parent_session}" ]] && [[ $waited -lt 5 ]]; do
+                sleep 1
+                waited=$((waited + 1))
+                parent_session=$(get_parent_session)
+                log_debug "Waiting for SessionStart hook... (${waited}/5)"
+            done
         fi
 
         if [[ -n "${parent_session}" ]]; then
             # Verify the session file exists
             local session_pattern="${HOME}/.claude/projects/*/${parent_session}.jsonl"
             if ls ${session_pattern} 1> /dev/null 2>&1; then
-                # Fork the conversation
+                # Fork the conversation using --resume
                 echo "🍴 Forking conversation from session: ${parent_session}"
                 echo "   (Pane #${pane_num} - exploring a different path)"
                 echo ""
                 log_debug "Forking with: claude --resume ${parent_session}"
 
+                # NOTE: --resume creates a NEW session file (a fork), not shared state
+                # Each resumed session gets its own independent session file
                 exec claude --resume "${parent_session}" "$@"
             else
                 log_debug "Session file not found for: ${parent_session}"
@@ -236,9 +156,9 @@ main() {
             fi
         else
             # Fallback: launch normally if we couldn't find a parent session
-            log_debug "No parent session found after all attempts, launching new conversation"
+            log_debug "No parent session found after waiting"
             echo "⚠️  Could not find parent session, launching new conversation..."
-            echo "   Tip: Wait a few seconds after the first pane starts before forking"
+            echo "   Tip: Make sure SessionStart hook is configured in ~/.claude/settings.json"
             echo ""
             exec claude "$@"
         fi
@@ -248,6 +168,42 @@ main() {
 # Run main function
 main "$@"
 "#;
+
+const SESSION_CAPTURE_HOOK: &str = r#"#\!/bin/bash
+# Bunshin SessionStart hook - captures session ID instantly
+# This eliminates the 10-second delay from the fork wrapper
+set -euo pipefail
+
+# Read JSON from stdin
+INPUT=$(cat)
+
+# Extract session metadata
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
+SOURCE=$(echo "$INPUT" | jq -r '.source // "startup"')
+
+# Only save on startup (not resume/clear/compact)
+# When forking (source="resume"), we DON'T want to overwrite the parent session
+if [[ "$SOURCE" == "startup" ]] && [[ -n "$SESSION_ID" ]]; then
+    # Get Zellij session name from environment
+    ZELLIJ_SESSION="${ZELLIJ_SESSION_NAME:-default}"
+    STATE_DIR="${HOME}/.bunshin/state"
+    mkdir -p "${STATE_DIR}"
+
+    # Save the session ID immediately - no more 10 second delay!
+    echo "${SESSION_ID}" > "${STATE_DIR}/${ZELLIJ_SESSION}.parent_session"
+
+    # Debug logging if enabled
+    if [[ "${BUNSHIN_DEBUG:-0}" == "1" ]]; then
+        DEBUG_LOG="${STATE_DIR}/${ZELLIJ_SESSION}.debug.log"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [SessionStart Hook] Captured session ID instantly: ${SESSION_ID}" >> "${DEBUG_LOG}"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [SessionStart Hook] Source: ${SOURCE}" >> "${DEBUG_LOG}"
+    fi
+fi
+
+# Return success immediately (non-blocking)
+exit 0
+"#;
+
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -341,9 +297,10 @@ fn setup() -> Result<()> {
     let config_path = config_dir.join("config.kdl");
     let layout_path = config_dir.join("layout.kdl");
     let fork_script_path = bin_dir.join("claude-fork");
+    let hook_path = bin_dir.join("bunshin-session-capture");
 
     // Check if any setup is needed
-    let need_setup = !plugin_path.exists() || !config_path.exists() || !layout_path.exists() || !fork_script_path.exists();
+    let need_setup = !plugin_path.exists() || !config_path.exists() || !layout_path.exists() || !fork_script_path.exists() || !hook_path.exists();
 
     if !need_setup {
         // All files exist, skip silently
@@ -383,6 +340,20 @@ fn setup() -> Result<()> {
         println!("🍴 Installing conversation fork wrapper...");
         install_claude_fork_script(&fork_script_path)?;
         println!("   ✅ Fork wrapper installed: {}", fork_script_path.display());
+    }
+
+    // Install SessionStart hook for instant session capture if missing
+    if !hook_path.exists() {
+        println!("⚡ Installing SessionStart hook for instant session capture...");
+        install_session_capture_hook(&hook_path)?;
+        println!("   ✅ SessionStart hook installed: {}", hook_path.display());
+    }
+
+    // Configure Claude to use the SessionStart hook
+    println!("🔧 Configuring Claude to use bunshin SessionStart hook...");
+    match configure_claude_hook(&hook_path) {
+        Ok(_) => println!("   ✅ Claude hook configured successfully"),
+        Err(e) => println!("   ⚠️  Warning: Could not configure Claude hook: {}", e),
     }
 
     // Check for Zellij
@@ -500,6 +471,102 @@ fn install_claude_fork_script(path: &Path) -> Result<()> {
 
     Ok(())
 }
+
+fn install_session_capture_hook(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    // Write the hook script
+    fs::write(path, SESSION_CAPTURE_HOOK)?;
+
+    // Make it executable
+    let mut perms = fs::metadata(path)?.permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(path, perms)?;
+
+    Ok(())
+}
+
+fn configure_claude_hook(hook_path: &Path) -> Result<()> {
+    let claude_dir = dirs::home_dir()
+        .context("Could not find home directory")?
+        .join(".claude");
+    let settings_path = claude_dir.join("settings.json");
+    
+    // Ensure .claude directory exists
+    fs::create_dir_all(&claude_dir)?;
+    
+    // Read or create settings.json
+    let settings_content = if settings_path.exists() {
+        fs::read_to_string(&settings_path)?
+    } else {
+        r#"{
+    "$schema": "https://json.schemastore.org/claude-code-settings.json"
+}"#.to_string()
+    };
+    
+    // Parse JSON
+    let mut settings: serde_json::Value = serde_json::from_str(&settings_content)
+        .context("Failed to parse settings.json")?;
+    
+    // Check if our hook is already configured
+    let hook_path_str = hook_path.display().to_string();
+    let hook_already_exists = settings
+        .get("hooks")
+        .and_then(|h| h.get("SessionStart"))
+        .and_then(|s| s.as_array())
+        .map(|arr| {
+            arr.iter().any(|item| {
+                item.get("hooks")
+                    .and_then(|hooks| hooks.as_array())
+                    .map(|hook_arr| {
+                        hook_arr.iter().any(|h| {
+                            h.get("command")
+                                .and_then(|c| c.as_str())
+                                .map(|cmd| cmd == hook_path_str)
+                                .unwrap_or(false)
+                        })
+                    })
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false);
+    
+    if hook_already_exists {
+        return Ok(());
+    }
+    
+    // Add SessionStart hook
+    let hooks = settings
+        .as_object_mut()
+        .and_then(|obj| {
+            obj.entry("hooks")
+                .or_insert(serde_json::json!({}))
+                .as_object_mut()
+        })
+        .context("Failed to get hooks object")?;
+    
+    let session_start = hooks
+        .entry("SessionStart")
+        .or_insert(serde_json::json!([]))
+        .as_array_mut()
+        .context("SessionStart is not an array")?;
+    
+    // Add our hook
+    session_start.push(serde_json::json!({
+        "matcher": "",
+        "hooks": [{
+            "type": "command",
+            "command": hook_path_str
+        }]
+    }));
+    
+    // Write back
+    let pretty_json = serde_json::to_string_pretty(&settings)?;
+    fs::write(&settings_path, pretty_json)?;
+    
+    Ok(())
+}
+
 
 fn launch() -> Result<()> {
     let zellij_path = which_zellij().context(
