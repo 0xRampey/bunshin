@@ -8,7 +8,7 @@ use std::process::Command;
 const PLUGIN_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bunshin.wasm"));
 const ZELLIJ_VERSION: &str = "0.43.1";
 
-const CLAUDE_FORK_SCRIPT: &str = r#"
+const CLAUDE_FORK_SCRIPT: &str = r#"#!/bin/bash
 # Claude conversation forking wrapper for bunshin
 # This script manages conversation forking when opening new panes in a bunshin session
 
@@ -24,7 +24,6 @@ SESSION_STATE_FILE="${STATE_DIR}/${ZELLIJ_SESSION}.parent_session"
 PANE_COUNT_FILE="${STATE_DIR}/${ZELLIJ_SESSION}.pane_count"
 LOCK_FILE="${STATE_DIR}/${ZELLIJ_SESSION}.lock"
 DEBUG_LOG="${STATE_DIR}/${ZELLIJ_SESSION}.debug.log"
-START_TIME_FILE="${STATE_DIR}/${ZELLIJ_SESSION}.start_time"
 
 # Enable debug logging if BUNSHIN_DEBUG is set
 DEBUG="${BUNSHIN_DEBUG:-0}"
@@ -64,15 +63,14 @@ release_lock() {
 # Ensure lock is released on exit
 trap release_lock EXIT
 
-# Function to get Claude session created AFTER a specific timestamp
-get_claude_session_after_timestamp() {
-    local start_timestamp="$1"
+# Function to get the most recent Claude session ID from current working directory
+get_most_recent_claude_session() {
     local cwd=$(pwd)
     # Encode the path for Claude's storage format
     local encoded_path=$(echo "${cwd}" | sed 's/\//-/g')
     local project_dir="${HOME}/.claude/projects/${encoded_path}"
 
-    log_debug "Looking for sessions created after timestamp ${start_timestamp} in: ${project_dir}"
+    log_debug "Looking for sessions in: ${project_dir}"
 
     if [[ ! -d "${project_dir}" ]]; then
         log_debug "Project directory not found: ${project_dir}"
@@ -86,23 +84,17 @@ get_claude_session_after_timestamp() {
         return
     fi
 
-    # Find .jsonl files (excluding agent-*) created/modified after our start time
-    local recent_file=""
-    while IFS= read -r -d '' file; do
-        local file_mtime=$(stat -c '%Y' "$file" 2>/dev/null || echo "0")
-        if [[ "$file_mtime" -gt "$start_timestamp" ]]; then
-            recent_file="$file"
-            log_debug "Found file: $file (mtime: $file_mtime > start: $start_timestamp)"
-            break
-        fi
-    done < <(find "${project_dir}" -type f -name "*.jsonl" ! -name "agent-*.jsonl" -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null)
+    # Find the most recent .jsonl file (excluding agent-* files)
+    # Modified: only look at files from the last 60 seconds to avoid picking up old sessions
+    local recent_file=$(find "${project_dir}" -type f -name "*.jsonl" ! -name "agent-*.jsonl" -mmin -1 -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
 
     if [[ -n "${recent_file}" ]]; then
+        # Extract the session ID from the filename (it's the UUID before .jsonl)
         local session_id=$(basename "${recent_file}" .jsonl)
-        log_debug "Found session created after start time: ${session_id}"
+        log_debug "Found recent session: ${session_id}"
         echo "${session_id}"
     else
-        log_debug "No session files found created after timestamp ${start_timestamp}"
+        log_debug "No recent session files found"
         echo ""
     fi
 }
@@ -168,26 +160,22 @@ main() {
         echo ""
         log_debug "First pane - launching Claude normally"
 
-        # Record the start time BEFORE launching Claude
-        local start_time=$(date +%s)
-        echo "${start_time}" > "${START_TIME_FILE}"
-        log_debug "Recorded start time: ${start_time}"
-
         # Launch Claude normally, but save its session ID for forking
         # We'll capture the session ID after Claude initializes
         (
             # Wait for Claude to initialize and create its session file
-            sleep 10
+            # Increased wait time from 3 to 7 seconds for more reliable capture
+            sleep 7
 
-            # Get the session created after our start time
+            # Get the most recent Claude session
             local session_id
-            session_id=$(get_claude_session_after_timestamp "${start_time}")
+            session_id=$(get_most_recent_claude_session)
 
             if [[ -n "${session_id}" ]]; then
                 save_parent_session "${session_id}"
                 log_debug "Background process: Saved parent session ${session_id}"
             else
-                log_debug "Background process: No new session ID found after start time ${start_time}"
+                log_debug "Background process: No session ID found after 7 seconds"
             fi
         ) >/dev/null 2>&1 &
 
@@ -197,7 +185,7 @@ main() {
         log_debug "Subsequent pane (#${pane_num}) - attempting to fork"
 
         # Wait a bit for the first pane to save the session ID
-        local max_wait=20
+        local max_wait=15
         local waited=0
         while [[ -z "${parent_session}" ]] && [[ $waited -lt $max_wait ]]; do
             sleep 1
@@ -206,11 +194,10 @@ main() {
             log_debug "Waiting for parent session... (${waited}/${max_wait})"
         done
 
-        if [[ -z "${parent_session}" ]] && [[ -f "${START_TIME_FILE}" ]]; then
-            # Parent session not found yet, try to get it directly using start time
-            local start_time=$(cat "${START_TIME_FILE}")
-            log_debug "Parent session still not found, trying direct lookup after timestamp ${start_time}"
-            parent_session=$(get_claude_session_after_timestamp "${start_time}")
+        if [[ -z "${parent_session}" ]]; then
+            # Parent session not found yet, try to get it directly
+            log_debug "Parent session still not found, trying direct lookup"
+            parent_session=$(get_most_recent_claude_session)
 
             if [[ -n "${parent_session}" ]]; then
                 save_parent_session "${parent_session}"
@@ -238,7 +225,7 @@ main() {
             # Fallback: launch normally if we couldn't find a parent session
             log_debug "No parent session found after all attempts, launching new conversation"
             echo "⚠️  Could not find parent session, launching new conversation..."
-            echo "   Tip: Wait a few seconds after the first pane starts before forking"
+            echo "   Tip: Try sending a message in the first pane before forking"
             echo ""
             exec claude "$@"
         fi
