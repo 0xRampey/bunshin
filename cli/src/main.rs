@@ -79,53 +79,61 @@ fn get_bunshin_dir() -> Result<PathBuf> {
 
 fn setup() -> Result<()> {
     let bunshin_dir = get_bunshin_dir()?;
-    let plugin_dir = bunshin_dir.join("plugins");
     let config_dir = bunshin_dir.join("config");
-    let bin_dir = bunshin_dir.join("bin");
 
-    let plugin_path = plugin_dir.join("bunshin.wasm");
+    let plugin_path = bunshin_dir.join("bunshin.wasm");
     let config_path = config_dir.join("config.kdl");
     let layout_path = config_dir.join("layout.kdl");
 
-    // Check if setup is needed
-    if plugin_path.exists() && config_path.exists() && layout_path.exists() {
-        // Setup already done, skip silently
-        return Ok(());
+    let is_first_run = !config_path.exists() || !layout_path.exists();
+
+    if is_first_run {
+        println!("\n🥷 Setting up Bunshin...\n");
     }
 
-    println!("\n🥷 Setting up Bunshin...\n");
-
     // Create directories
-    fs::create_dir_all(&plugin_dir)?;
+    fs::create_dir_all(&bunshin_dir)?;
     fs::create_dir_all(&config_dir)?;
-    fs::create_dir_all(&bin_dir)?;
 
-    // Extract embedded plugin WASM
-    println!("📦 Installing Bunshin plugin...");
+    // Always overwrite plugin WASM (ensures latest version)
+    if is_first_run {
+        println!("📦 Installing Bunshin plugin...");
+    }
     let mut file = fs::File::create(&plugin_path)?;
     file.write_all(PLUGIN_WASM)?;
-    println!("   ✅ Plugin installed: {}", plugin_path.display());
+    if is_first_run {
+        println!("   ✅ Plugin installed: {}", plugin_path.display());
+    }
 
-    // Create config file
-    println!("⚙️  Creating configuration...");
-    create_config_file(&config_path, &plugin_path)?;
-    println!("   ✅ Config created: {}", config_path.display());
+    // Create config file only if missing
+    if !config_path.exists() {
+        println!("⚙️  Creating configuration...");
+        create_config_file(&config_path, &plugin_path)?;
+        println!("   ✅ Config created: {}", config_path.display());
+    } else {
+        // Update config to point to new plugin location
+        create_config_file(&config_path, &plugin_path)?;
+    }
 
-    // Create layout file
-    create_layout_file(&layout_path)?;
-    println!("   ✅ Layout created: {}", layout_path.display());
+    // Create layout file only if missing
+    if !layout_path.exists() {
+        create_layout_file(&layout_path)?;
+        println!("   ✅ Layout created: {}", layout_path.display());
+    }
 
-    // Check for Zellij
-    println!("🔍 Checking for Zellij...");
-    match which_zellij() {
-        Some(path) => {
-            println!("   ✅ Found Zellij: {}", path.display());
-        }
-        None => {
-            println!("   ⚠️  Zellij not found in PATH");
-            println!("   📥 Please install Zellij:");
-            println!("      cargo install zellij");
-            println!("      or visit: https://zellij.dev/documentation/installation");
+    // Check for Zellij on first run
+    if is_first_run {
+        println!("🔍 Checking for Zellij...");
+        match which_zellij() {
+            Some(path) => {
+                println!("   ✅ Found Zellij: {}", path.display());
+            }
+            None => {
+                println!("   ⚠️  Zellij not found in PATH");
+                println!("   📥 Please install Zellij:");
+                println!("      cargo install zellij");
+                println!("      or visit: https://zellij.dev/documentation/installation");
+            }
         }
     }
 
