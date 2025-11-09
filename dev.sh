@@ -52,10 +52,8 @@ build_plugin() {
 # Build CLI (includes plugin via build.rs)
 build_cli() {
     log "Building CLI (will auto-build plugin)..."
-    cd cli
-    cargo build --release
-    cd ..
-    info "CLI binary: cli/target/release/bunshin"
+    cargo build --release --package bunshin
+    info "CLI binary: target/release/bunshin"
 }
 
 # Full build (both plugin and CLI)
@@ -77,12 +75,12 @@ clean() {
 
 # Run the built binary
 run() {
-    if [ ! -f "cli/target/release/bunshin" ]; then
+    if [ ! -f "target/release/bunshin" ]; then
         error "Binary not found. Run './dev.sh build' first."
     fi
 
     log "Running bunshin..."
-    ./cli/target/release/bunshin "$@"
+    ./target/release/bunshin "$@"
 }
 
 # Install to ~/.cargo/bin
