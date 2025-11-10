@@ -130,6 +130,11 @@ fn create_config_file(path: &Path, plugin_path: &Path) -> Result<()> {
     let config = format!(
         r#"// Bunshin (分身) - Auto-generated Configuration
 
+// Disable welcome screen and tips
+on_force_close "quit"
+show_startup_tips false
+show_release_notes false
+
 keybinds clear-defaults=true {{
     normal {{
         // Tmux-style prefix keybinding
