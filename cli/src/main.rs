@@ -231,20 +231,26 @@ fn setup() -> Result<()> {
     let fork_script_path = bin_dir.join("claude-fork");
     let hook_path = bin_dir.join("bunshin-session-capture");
 
-    // Check if any setup is needed
-    let need_setup = !plugin_path.exists() || !config_path.exists() || !layout_path.exists() || !fork_script_path.exists() || !hook_path.exists();
+    // Check if any setup is needed (bin scripts are always reinstalled)
+    let need_setup = !plugin_path.exists() || !config_path.exists() || !layout_path.exists();
+
+    // Create directories (needed for bin scripts below)
+    fs::create_dir_all(&plugin_dir)?;
+    fs::create_dir_all(&config_dir)?;
+    fs::create_dir_all(&bin_dir)?;
+
+    // Always reinstall bin scripts silently to keep them in sync with the binary
+    let first_time_fork = !fork_script_path.exists();
+    let first_time_hook = !hook_path.exists();
+    install_claude_fork_script(&fork_script_path)?;
+    install_session_capture_hook(&hook_path)?;
 
     if !need_setup {
-        // All files exist, skip silently
+        // All config files exist, skip verbose setup
         return Ok(());
     }
 
     println!("\n🥷 Setting up Bunshin...\n");
-
-    // Create directories
-    fs::create_dir_all(&plugin_dir)?;
-    fs::create_dir_all(&config_dir)?;
-    fs::create_dir_all(&bin_dir)?;
 
     // Extract embedded plugin WASM if missing
     if !plugin_path.exists() {
@@ -267,17 +273,14 @@ fn setup() -> Result<()> {
         println!("   ✅ Layout created: {}", layout_path.display());
     }
 
-    // Install claude-fork wrapper script if missing
-    if !fork_script_path.exists() {
+    // Print messages if this is first-time setup for bin scripts
+    if first_time_fork {
         println!("🍴 Installing conversation fork wrapper...");
-        install_claude_fork_script(&fork_script_path)?;
         println!("   ✅ Fork wrapper installed: {}", fork_script_path.display());
     }
 
-    // Install SessionStart hook for instant session capture if missing
-    if !hook_path.exists() {
+    if first_time_hook {
         println!("⚡ Installing SessionStart hook for instant session capture...");
-        install_session_capture_hook(&hook_path)?;
         println!("   ✅ SessionStart hook installed: {}", hook_path.display());
         println!("");
         println!("   ℹ️  What is the SessionStart hook?");
