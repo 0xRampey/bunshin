@@ -14,6 +14,7 @@ struct State {
     rename_input: Option<String>,
     error_message: Option<String>,
     session_dirs: HashMap<String, String>, // session_name -> working_directory
+    debug_info: String, // Debug information to display
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -48,6 +49,7 @@ impl ZellijPlugin for State {
         ]);
 
         // Load existing session-dirs data on startup
+        self.debug_info = "Loading session dirs...".to_string();
         let mut context = BTreeMap::new();
         context.insert("action".to_string(), "load_session_dirs".to_string());
         run_command(
@@ -74,18 +76,41 @@ impl ZellijPlugin for State {
                 self.colors = mode_info.style.colors;
                 should_render = true;
             }
-            Event::RunCommandResult(exit_code, stdout, _stderr, context) => {
+            Event::RunCommandResult(exit_code, stdout, stderr, context) => {
                 // Handle the result of loading session-dirs.json
                 if context.get("action") == Some(&"load_session_dirs".to_string()) {
+                    self.debug_info = format!("Got result: exit={:?}", exit_code);
+
                     if exit_code == Some(0) {
                         // Convert stdout bytes to string and parse JSON
-                        if let Ok(output) = String::from_utf8(stdout) {
-                            if let Ok(dirs) = serde_json::from_str::<HashMap<String, String>>(&output) {
-                                self.session_dirs = dirs;
+                        match String::from_utf8(stdout.clone()) {
+                            Ok(output) => {
+                                self.debug_info = format!("Output: {}", if output.len() > 100 { &output[..100] } else { &output });
+
+                                match serde_json::from_str::<HashMap<String, String>>(&output) {
+                                    Ok(dirs) => {
+                                        self.session_dirs = dirs;
+                                        self.debug_info = format!("Loaded {} CWDs successfully", self.session_dirs.len());
+                                        should_render = true;
+                                    }
+                                    Err(e) => {
+                                        self.debug_info = format!("JSON parse error: {:?}", e);
+                                        should_render = true;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                self.debug_info = format!("UTF8 error: {:?}", e);
                                 should_render = true;
                             }
                         }
+                    } else {
+                        let stderr_str = String::from_utf8_lossy(&stderr);
+                        self.debug_info = format!("Command failed: exit={:?}, stderr={}", exit_code, stderr_str);
+                        should_render = true;
                     }
+                } else {
+                    self.debug_info = format!("Unknown context: {:?}", context);
                 }
             }
             _ => {}
@@ -96,12 +121,22 @@ impl ZellijPlugin for State {
     fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
         // Handle pipe messages for session directory updates
         if pipe_message.name == "bunshin-session-dirs" {
+            self.debug_info = "Received pipe message".to_string();
             if let Some(payload) = pipe_message.payload {
-                // Parse JSON payload into session_dirs HashMap
-                if let Ok(dirs) = serde_json::from_str::<HashMap<String, String>>(&payload) {
-                    self.session_dirs = dirs;
-                    return true; // Re-render to show updated CWDs
+                match serde_json::from_str::<HashMap<String, String>>(&payload) {
+                    Ok(dirs) => {
+                        self.session_dirs = dirs;
+                        self.debug_info = format!("Pipe: Loaded {} CWDs", self.session_dirs.len());
+                        return true;
+                    }
+                    Err(e) => {
+                        self.debug_info = format!("Pipe JSON error: {:?}", e);
+                        return true;
+                    }
                 }
+            } else {
+                self.debug_info = "Pipe: No payload".to_string();
+                return true;
             }
         }
         false
@@ -934,6 +969,18 @@ impl State {
             None,
             None,
         );
+
+        // Show debug info
+        if !self.debug_info.is_empty() {
+            let debug = format!("DEBUG: {}", self.debug_info);
+            print_text_with_coordinates(
+                Text::new(&debug).color_range(2, 0..debug.len()),
+                2,
+                rows - 3,
+                None,
+                None,
+            );
+        }
     }
 
     fn render_error(&self, error: &str, rows: usize, cols: usize) {
