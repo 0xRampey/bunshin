@@ -38,7 +38,6 @@ impl ZellijPlugin for State {
             EventType::Key,
             EventType::SessionUpdate,
             EventType::ModeUpdate,
-            EventType::CustomMessage,
         ]);
         request_permission(&[
             PermissionType::ReadApplicationState,
@@ -76,18 +75,23 @@ impl ZellijPlugin for State {
                 self.colors = mode_info.style.colors;
                 should_render = true;
             }
-            Event::CustomMessage(message, payload) => {
-                // Handle pipe messages with session directory data
-                if message == "bunshin-session-dirs" {
-                    if let Ok(dirs) = serde_json::from_str::<HashMap<String, String>>(&payload) {
-                        self.session_dirs = dirs;
-                        should_render = true;
-                    }
-                }
-            }
             _ => {}
         }
         should_render
+    }
+
+    fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
+        // Handle pipe messages for session directory updates
+        if pipe_message.name == "bunshin-session-dirs" {
+            if let Some(payload) = pipe_message.payload {
+                // Parse JSON payload into session_dirs HashMap
+                if let Ok(dirs) = serde_json::from_str::<HashMap<String, String>>(&payload) {
+                    self.session_dirs = dirs;
+                    return true; // Re-render to show updated CWDs
+                }
+            }
+        }
+        false
     }
 
     fn render(&mut self, rows: usize, cols: usize) {
