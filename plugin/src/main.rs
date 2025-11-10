@@ -415,9 +415,21 @@ impl State {
             path.push(".bunshin");
             path.push("session-dirs.json");
 
-            if let Ok(contents) = fs::read_to_string(&path) {
-                if let Ok(dirs) = serde_json::from_str::<HashMap<String, String>>(&contents) {
-                    self.session_dirs = dirs;
+            match fs::read_to_string(&path) {
+                Ok(contents) => {
+                    match serde_json::from_str::<HashMap<String, String>>(&contents) {
+                        Ok(dirs) => {
+                            self.session_dirs = dirs;
+                        }
+                        Err(_) => {
+                            // JSON parse error - clear existing data
+                            self.session_dirs.clear();
+                        }
+                    }
+                }
+                Err(_) => {
+                    // File doesn't exist or can't be read - clear existing data
+                    self.session_dirs.clear();
                 }
             }
         }
@@ -500,7 +512,7 @@ impl State {
         for (idx, session) in self.sessions.iter().enumerate() {
             let cwd = self.session_dirs.get(&session.name)
                 .cloned()
-                .unwrap_or_else(|| "N/A".to_string());
+                .unwrap_or_else(|| format!("N/A (looking for: '{}')", session.name));
             cwd_groups.entry(cwd).or_insert_with(Vec::new).push(idx);
         }
 
