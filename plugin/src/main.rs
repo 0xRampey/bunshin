@@ -826,10 +826,7 @@ impl State {
     }
 
     fn render_status_line(&self, rows: usize, cols: usize) {
-        let status = format!(
-            "{} sessions | ?: Help | q: Quit",
-            self.sessions.len()
-        );
+        let status = format!("{} sessions", self.sessions.len());
         print_text_with_coordinates(
             Text::new(&status).color_range(0, 0..status.len()),
             (cols.saturating_sub(status.len())) / 2,
