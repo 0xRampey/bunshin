@@ -38,6 +38,7 @@ impl ZellijPlugin for State {
             EventType::Key,
             EventType::SessionUpdate,
             EventType::ModeUpdate,
+            EventType::RunCommandResult,
         ]);
         request_permission(&[
             PermissionType::ReadApplicationState,
@@ -46,14 +47,12 @@ impl ZellijPlugin for State {
             PermissionType::RunCommands,
         ]);
 
-        // Request initial data load by running a command to pipe existing session-dirs
+        // Load existing session-dirs data on startup
+        let mut context = BTreeMap::new();
+        context.insert("action".to_string(), "load_session_dirs".to_string());
         run_command(
-            &[
-                "bash",
-                "-c",
-                "[ -f ~/.bunshin/session-dirs.json ] && cat ~/.bunshin/session-dirs.json | zellij pipe --name bunshin-session-dirs || true"
-            ],
-            BTreeMap::new()
+            &["sh", "-c", "cat ~/.bunshin/session-dirs.json 2>/dev/null || echo '{}'"],
+            context
         );
     }
 
@@ -74,6 +73,20 @@ impl ZellijPlugin for State {
             Event::ModeUpdate(mode_info) => {
                 self.colors = mode_info.style.colors;
                 should_render = true;
+            }
+            Event::RunCommandResult(exit_code, stdout, _stderr, context) => {
+                // Handle the result of loading session-dirs.json
+                if context.get("action") == Some(&"load_session_dirs".to_string()) {
+                    if exit_code == Some(0) {
+                        // Convert stdout bytes to string and parse JSON
+                        if let Ok(output) = String::from_utf8(stdout) {
+                            if let Ok(dirs) = serde_json::from_str::<HashMap<String, String>>(&output) {
+                                self.session_dirs = dirs;
+                                should_render = true;
+                            }
+                        }
+                    }
+                }
             }
             _ => {}
         }
