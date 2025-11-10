@@ -8,6 +8,7 @@ use zellij_tile::prelude::*;
 struct State {
     sessions: Vec<SessionInfo>,
     selected_index: usize,
+    scroll_offset: usize,
     mode: Mode,
     colors: Styling,
     show_help: bool,
@@ -124,6 +125,7 @@ impl State {
             BareKey::Down | BareKey::Char('j') if key.has_no_modifiers() => {
                 if !self.sessions.is_empty() {
                     self.selected_index = (self.selected_index + 1) % self.sessions.len();
+                    self.adjust_scroll();
                 }
                 true
             }
@@ -134,16 +136,35 @@ impl State {
                     } else {
                         self.selected_index - 1
                     };
+                    self.adjust_scroll();
                 }
                 true
             }
             BareKey::Home | BareKey::Char('g') if key.has_no_modifiers() => {
                 self.selected_index = 0;
+                self.scroll_offset = 0;
                 true
             }
             BareKey::End | BareKey::Char('G') if key.has_no_modifiers() => {
                 if !self.sessions.is_empty() {
                     self.selected_index = self.sessions.len() - 1;
+                    self.adjust_scroll();
+                }
+                true
+            }
+            BareKey::PageDown | BareKey::Char('f') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                if !self.sessions.is_empty() {
+                    // Jump down 5 sessions
+                    self.selected_index = (self.selected_index + 5).min(self.sessions.len() - 1);
+                    self.adjust_scroll();
+                }
+                true
+            }
+            BareKey::PageUp | BareKey::Char('b') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                if !self.sessions.is_empty() {
+                    // Jump up 5 sessions
+                    self.selected_index = self.selected_index.saturating_sub(5);
+                    self.adjust_scroll();
                 }
                 true
             }
@@ -401,6 +422,21 @@ impl State {
         }
     }
 
+    fn adjust_scroll(&mut self) {
+        // Adjust scroll_offset to keep selected session visible
+        // Assume roughly 20 visible lines (conservative estimate)
+        let visible_lines = 20;
+
+        // If selected is below visible area, scroll down
+        if self.selected_index >= self.scroll_offset + visible_lines {
+            self.scroll_offset = self.selected_index.saturating_sub(visible_lines - 1);
+        }
+        // If selected is above visible area, scroll up
+        else if self.selected_index < self.scroll_offset {
+            self.scroll_offset = self.selected_index;
+        }
+    }
+
     fn is_current_session_selected(&self) -> bool {
         self.sessions
             .get(self.selected_index)
@@ -416,28 +452,21 @@ impl State {
             path.push(".bunshin");
             path.push("session-dirs.json");
 
-            let debug_path = home_path.join(".bunshin").join("plugin-debug.log");
-
             match fs::read_to_string(&path) {
                 Ok(contents) => {
                     match serde_json::from_str::<HashMap<String, String>>(&contents) {
                         Ok(dirs) => {
-                            // Write debug info to a file we can check
-                            let debug_msg = format!("Loaded {} entries: {:?}\n", dirs.len(), dirs);
-                            let _ = fs::write(&debug_path, debug_msg);
-
                             self.session_dirs = dirs;
                         }
-                        Err(e) => {
-                            // JSON parse error
-                            let _ = fs::write(&debug_path, format!("JSON parse error: {:?}\n", e));
+                        Err(_) => {
+                            // JSON parse error - show error in UI
+                            self.error_message = Some("Failed to parse session-dirs.json".to_string());
                             self.session_dirs.clear();
                         }
                     }
                 }
-                Err(e) => {
-                    // File doesn't exist or can't be read
-                    let _ = fs::write(&debug_path, format!("File read error: {:?}\n", e));
+                Err(_) => {
+                    // File doesn't exist or can't be read - this is OK, might be first run
                     self.session_dirs.clear();
                 }
             }
@@ -525,28 +554,49 @@ impl State {
             cwd_groups.entry(cwd).or_insert_with(Vec::new).push(idx);
         }
 
-        // Render grouped sessions
+        // Build flat list of all items for scrolling
+        let mut display_items: Vec<(usize, bool)> = Vec::new(); // (session_idx, is_header)
+        for (_, session_indices) in cwd_groups.iter() {
+            if !session_indices.is_empty() {
+                display_items.push((session_indices[0], true)); // Header marker
+                for &idx in session_indices {
+                    display_items.push((idx, false)); // Session item
+                }
+            }
+        }
+
+        // Calculate visible area
         let list_start_y = 3;
-        let mut current_y = list_start_y;
         let max_y = rows.saturating_sub(3);
+        let visible_lines = max_y.saturating_sub(list_start_y);
+
+        // Apply scrolling - skip scroll_offset items
+        let mut current_y = list_start_y;
+        let mut items_to_skip = self.scroll_offset;
 
         for (cwd, session_indices) in cwd_groups.iter() {
-            if current_y >= max_y {
-                break;
+            // Skip header if we're still in skip zone
+            if items_to_skip > 0 {
+                items_to_skip -= 1;
+            } else if current_y < max_y {
+                // Render CWD header
+                let cwd_display = if cwd.len() > cols.saturating_sub(4) {
+                    format!("...{}", &cwd[cwd.len().saturating_sub(cols - 7)..])
+                } else {
+                    cwd.clone()
+                };
+                let cwd_text = Text::new(&cwd_display).color_range(3, 0..cwd_display.len());
+                print_text_with_coordinates(cwd_text, 2, current_y, None, None);
+                current_y += 1;
             }
-
-            // Render CWD header
-            let cwd_display = if cwd.len() > cols.saturating_sub(4) {
-                format!("...{}", &cwd[cwd.len().saturating_sub(cols - 7)..])
-            } else {
-                cwd.clone()
-            };
-            let cwd_text = Text::new(&cwd_display).color_range(3, 0..cwd_display.len());
-            print_text_with_coordinates(cwd_text, 2, current_y, None, None);
-            current_y += 1;
 
             // Render sessions in this group (indented)
             for &session_idx in session_indices {
+                if items_to_skip > 0 {
+                    items_to_skip -= 1;
+                    continue;
+                }
+
                 if current_y >= max_y {
                     break;
                 }
@@ -583,8 +633,9 @@ impl State {
                 current_y += 1;
             }
 
-            // Add spacing between groups
-            current_y += 1;
+            if current_y >= max_y {
+                break;
+            }
         }
 
         // Status line
@@ -869,8 +920,9 @@ impl State {
 
     fn render_status_line(&self, rows: usize, cols: usize) {
         let status = format!(
-            "{} sessions | ?: Help | q: Quit",
-            self.sessions.len()
+            "{} sessions | {} CWDs loaded | ?: Help | q: Quit",
+            self.sessions.len(),
+            self.session_dirs.len()
         );
         print_text_with_coordinates(
             Text::new(&status).color_range(0, 0..status.len()),
