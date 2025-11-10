@@ -411,24 +411,33 @@ impl State {
     fn load_session_dirs(&mut self) {
         // Read session directories from ~/.bunshin/session-dirs.json
         if let Some(home) = std::env::var_os("HOME") {
-            let mut path = PathBuf::from(home);
+            let home_path = PathBuf::from(&home);
+            let mut path = home_path.clone();
             path.push(".bunshin");
             path.push("session-dirs.json");
+
+            let debug_path = home_path.join(".bunshin").join("plugin-debug.log");
 
             match fs::read_to_string(&path) {
                 Ok(contents) => {
                     match serde_json::from_str::<HashMap<String, String>>(&contents) {
                         Ok(dirs) => {
+                            // Write debug info to a file we can check
+                            let debug_msg = format!("Loaded {} entries: {:?}\n", dirs.len(), dirs);
+                            let _ = fs::write(&debug_path, debug_msg);
+
                             self.session_dirs = dirs;
                         }
-                        Err(_) => {
-                            // JSON parse error - clear existing data
+                        Err(e) => {
+                            // JSON parse error
+                            let _ = fs::write(&debug_path, format!("JSON parse error: {:?}\n", e));
                             self.session_dirs.clear();
                         }
                     }
                 }
-                Err(_) => {
-                    // File doesn't exist or can't be read - clear existing data
+                Err(e) => {
+                    // File doesn't exist or can't be read
+                    let _ = fs::write(&debug_path, format!("File read error: {:?}\n", e));
                     self.session_dirs.clear();
                 }
             }
