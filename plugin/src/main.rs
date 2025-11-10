@@ -38,6 +38,7 @@ impl ZellijPlugin for State {
             EventType::Key,
             EventType::SessionUpdate,
             EventType::ModeUpdate,
+            EventType::CustomMessage,
         ]);
         request_permission(&[
             PermissionType::ReadApplicationState,
@@ -46,9 +47,15 @@ impl ZellijPlugin for State {
             PermissionType::RunCommands,
         ]);
 
-        // Subscribe to pipe for session directory updates
-        pipe_message_to_plugin(MessageToPlugin::new("subscribe_to_pipe")
-            .with_payload("bunshin-session-dirs"));
+        // Request initial data load by running a command to pipe existing session-dirs
+        run_command(
+            &[
+                "bash",
+                "-c",
+                "[ -f ~/.bunshin/session-dirs.json ] && cat ~/.bunshin/session-dirs.json | zellij pipe --name bunshin-session-dirs || true"
+            ],
+            BTreeMap::new()
+        );
     }
 
     fn update(&mut self, event: Event) -> bool {
@@ -547,7 +554,7 @@ impl State {
         // Calculate visible area
         let list_start_y = 3;
         let max_y = rows.saturating_sub(3);
-        let visible_lines = max_y.saturating_sub(list_start_y);
+        let _visible_lines = max_y.saturating_sub(list_start_y);
 
         // Apply scrolling - skip scroll_offset items
         let mut current_y = list_start_y;
