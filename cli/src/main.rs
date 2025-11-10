@@ -93,39 +93,29 @@ fn setup() -> Result<()> {
         return Ok(());
     }
 
-    println!("\n🥷 Setting up Bunshin...\n");
-
     // Create directories
     fs::create_dir_all(&plugin_dir)?;
     fs::create_dir_all(&config_dir)?;
     fs::create_dir_all(&bin_dir)?;
 
     // Extract embedded plugin WASM
-    println!("📦 Installing Bunshin plugin...");
     let mut file = fs::File::create(&plugin_path)?;
     file.write_all(PLUGIN_WASM)?;
-    println!("   ✅ Plugin installed: {}", plugin_path.display());
 
     // Create config file
-    println!("⚙️  Creating configuration...");
     create_config_file(&config_path, &plugin_path)?;
-    println!("   ✅ Config created: {}", config_path.display());
 
     // Create layout file
     create_layout_file(&layout_path)?;
-    println!("   ✅ Layout created: {}", layout_path.display());
 
     // Check for Zellij
-    println!("🔍 Checking for Zellij...");
     match which_zellij() {
-        Some(path) => {
-            println!("   ✅ Found Zellij: {}", path.display());
-        }
+        Some(_path) => {}
         None => {
-            println!("   ⚠️  Zellij not found in PATH");
-            println!("   📥 Please install Zellij:");
-            println!("      cargo install zellij");
-            println!("      or visit: https://zellij.dev/documentation/installation");
+            println!("Zellij not found in PATH");
+            println!("Please install Zellij:");
+            println!("  cargo install zellij");
+            println!("  or visit: https://zellij.dev/documentation/installation");
         }
     }
 
