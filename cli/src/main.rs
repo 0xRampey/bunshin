@@ -172,10 +172,7 @@ fn create_layout_file(path: &Path) -> Result<()> {
         plugin location="tab-bar"
     }
     pane split_direction="Vertical" {
-        pane {
-            command "claude"
-            // cwd defaults to current working directory
-        }
+        pane
     }
     pane size=2 borderless=true {
         plugin location="status-bar"
