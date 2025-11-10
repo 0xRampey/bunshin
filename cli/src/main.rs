@@ -286,6 +286,12 @@ with open('$SESSION_DIRS_FILE', 'w') as f:
 "
 fi
 
+# Pipe the updated session-dirs data to the Bunshin plugin
+# This allows the plugin to receive updates without needing file system access
+if command -v zellij &> /dev/null && [ -n "$ZELLIJ_SESSION_NAME" ]; then
+    cat "$SESSION_DIRS_FILE" | zellij pipe --name bunshin-session-dirs 2>/dev/null || true
+fi
+
 # Return success to allow the session to start
 exit 0
 "#;

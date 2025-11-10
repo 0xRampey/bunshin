@@ -1,7 +1,5 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::fs;
-use std::path::PathBuf;
 use zellij_tile::prelude::*;
 
 #[derive(Default)]
@@ -46,8 +44,11 @@ impl ZellijPlugin for State {
             PermissionType::ChangeApplicationState,
             PermissionType::OpenTerminalsOrPlugins,
             PermissionType::RunCommands,
-            PermissionType::FullHdAccess,
         ]);
+
+        // Subscribe to pipe for session directory updates
+        pipe_message_to_plugin(MessageToPlugin::new("subscribe_to_pipe")
+            .with_payload("bunshin-session-dirs"));
     }
 
     fn update(&mut self, event: Event) -> bool {
@@ -62,13 +63,20 @@ impl ZellijPlugin for State {
                 if !self.sessions.is_empty() && self.selected_index >= self.sessions.len() {
                     self.selected_index = self.sessions.len() - 1;
                 }
-                // Reload session directories
-                self.load_session_dirs();
                 should_render = true;
             }
             Event::ModeUpdate(mode_info) => {
                 self.colors = mode_info.style.colors;
                 should_render = true;
+            }
+            Event::CustomMessage(message, payload) => {
+                // Handle pipe messages with session directory data
+                if message == "bunshin-session-dirs" {
+                    if let Ok(dirs) = serde_json::from_str::<HashMap<String, String>>(&payload) {
+                        self.session_dirs = dirs;
+                        should_render = true;
+                    }
+                }
             }
             _ => {}
         }
@@ -442,35 +450,6 @@ impl State {
             .get(self.selected_index)
             .map(|s| s.is_current_session)
             .unwrap_or(false)
-    }
-
-    fn load_session_dirs(&mut self) {
-        // Read session directories from ~/.bunshin/session-dirs.json
-        if let Some(home) = std::env::var_os("HOME") {
-            let home_path = PathBuf::from(&home);
-            let mut path = home_path.clone();
-            path.push(".bunshin");
-            path.push("session-dirs.json");
-
-            match fs::read_to_string(&path) {
-                Ok(contents) => {
-                    match serde_json::from_str::<HashMap<String, String>>(&contents) {
-                        Ok(dirs) => {
-                            self.session_dirs = dirs;
-                        }
-                        Err(_) => {
-                            // JSON parse error - show error in UI
-                            self.error_message = Some("Failed to parse session-dirs.json".to_string());
-                            self.session_dirs.clear();
-                        }
-                    }
-                }
-                Err(_) => {
-                    // File doesn't exist or can't be read - this is OK, might be first run
-                    self.session_dirs.clear();
-                }
-            }
-        }
     }
 
     fn launch_claude_pane(&self) {
