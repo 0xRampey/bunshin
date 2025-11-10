@@ -1,0 +1,12 @@
+/home/user/bunshin/plugin/target/wasm32-wasip1/release/deps/os_str_bytes-4944001d67f79906.d: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/common/mod.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/common/raw.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/iter.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/pattern.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/raw_str.rs
+
+/home/user/bunshin/plugin/target/wasm32-wasip1/release/deps/libos_str_bytes-4944001d67f79906.rlib: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/common/mod.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/common/raw.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/iter.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/pattern.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/raw_str.rs
+
+/home/user/bunshin/plugin/target/wasm32-wasip1/release/deps/libos_str_bytes-4944001d67f79906.rmeta: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/common/mod.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/common/raw.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/iter.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/pattern.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/raw_str.rs
+
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/lib.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/common/mod.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/common/raw.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/iter.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/pattern.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/os_str_bytes-6.6.1/src/raw_str.rs:
