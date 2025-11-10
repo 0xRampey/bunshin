@@ -550,7 +550,7 @@ impl State {
         for (idx, session) in self.sessions.iter().enumerate() {
             let cwd = self.session_dirs.get(&session.name)
                 .cloned()
-                .unwrap_or_else(|| format!("N/A (looking for: '{}')", session.name));
+                .unwrap_or_else(|| "N/A".to_string());
             cwd_groups.entry(cwd).or_insert_with(Vec::new).push(idx);
         }
 
