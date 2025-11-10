@@ -1,5 +1,7 @@
 # Rust
 /target
+plugin/target/
+cli/target/
 Cargo.lock
 
 # IDE
