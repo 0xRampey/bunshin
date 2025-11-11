@@ -676,11 +676,6 @@ pub fn first_line(
             KeyAction::Quit,
             to_char(action_key(binds, &[Action::Quit])),
         ),
-        KeyShortcut::new(
-            KeyMode::Unselected,
-            KeyAction::Tmux,
-            to_char(action_key(binds, &[Action::SwitchToMode(InputMode::Tmux)])),
-        ),
     ];
 
     if let Some(key_shortcut) = get_key_shortcut_for_mode(&mut default_keys, &help.mode) {
@@ -693,6 +688,15 @@ pub fn first_line(
         for key in default_keys.iter_mut().skip(1) {
             key.mode = KeyMode::Disabled;
         }
+    }
+
+    // In tmux mode we show the Tmux button as selected (hidden by default)
+    if help.mode == InputMode::Tmux {
+        default_keys.push(KeyShortcut::new(
+            KeyMode::Selected,
+            KeyAction::Tmux,
+            to_char(action_key(binds, &[TO_NORMAL])),
+        ));
     }
 
     let mut key_indicators =
