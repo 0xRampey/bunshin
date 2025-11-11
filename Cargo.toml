@@ -1,6 +1,6 @@
 [workspace]
 members = ["cli"]
-exclude = ["plugin"]
+exclude = ["plugin", "status-bar"]
 resolver = "2"
 
 [workspace.package]

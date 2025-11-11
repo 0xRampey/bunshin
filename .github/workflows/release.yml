@@ -17,25 +17,39 @@ jobs:
         with:
           targets: wasm32-wasip1
 
-      - name: Build WASM
+      - name: Build WASM Plugins
         run: |
+          # Build bunshin plugin
           cargo build --release --target wasm32-wasip1 --manifest-path plugin/Cargo.toml
 
-          # Create prebuilt directory for embedding in binary builds
-          mkdir -p plugin/prebuilt
-          cp plugin/target/wasm32-wasip1/release/bunshin.wasm plugin/prebuilt/
+          # Build status-bar plugin
+          cargo build --release --target wasm32-wasip1 --manifest-path status-bar/Cargo.toml
 
-      - name: Upload WASM artifact (standalone)
+          # Create prebuilt directories for embedding in binary builds
+          mkdir -p plugin/prebuilt
+          mkdir -p status-bar/prebuilt
+          cp plugin/target/wasm32-wasip1/release/bunshin.wasm plugin/prebuilt/
+          cp status-bar/target/wasm32-wasip1/release/status-bar.wasm status-bar/prebuilt/
+
+      - name: Upload bunshin WASM artifact
         uses: actions/upload-artifact@v4
         with:
           name: bunshin.wasm
           path: plugin/target/wasm32-wasip1/release/bunshin.wasm
 
-      - name: Upload prebuilt WASM (for binary builds)
+      - name: Upload status-bar WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: status-bar.wasm
+          path: status-bar/target/wasm32-wasip1/release/status-bar.wasm
+
+      - name: Upload prebuilt WASMs (for binary builds)
         uses: actions/upload-artifact@v4
         with:
           name: prebuilt-wasm
-          path: plugin/prebuilt/bunshin.wasm
+          path: |
+            plugin/prebuilt/bunshin.wasm
+            status-bar/prebuilt/status-bar.wasm
 
   build-binary:
     name: Build Binary - ${{ matrix.os }}
@@ -64,7 +78,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: prebuilt-wasm
-          path: plugin/prebuilt/
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -106,6 +119,7 @@ jobs:
         with:
           files: |
             artifacts/bunshin.wasm/bunshin.wasm
+            artifacts/status-bar.wasm/status-bar.wasm
             artifacts/bunshin-linux-x86_64/bunshin-linux-x86_64.tar.gz
             artifacts/bunshin-linux-aarch64/bunshin-linux-aarch64.tar.gz
             artifacts/bunshin-macos-x86_64/bunshin-macos-x86_64.tar.gz
