@@ -5,7 +5,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const PLUGIN_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bunshin.wasm"));
+const BUNSHIN_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bunshin.wasm"));
+const STATUS_BAR_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/status-bar.wasm"));
 const ZELLIJ_VERSION: &str = "0.43.1";
 
 fn main() -> Result<()> {
@@ -83,12 +84,17 @@ fn setup() -> Result<()> {
     let config_dir = bunshin_dir.join("config");
     let bin_dir = bunshin_dir.join("bin");
 
-    let plugin_path = plugin_dir.join("bunshin.wasm");
+    let bunshin_plugin_path = plugin_dir.join("bunshin.wasm");
+    let status_bar_plugin_path = plugin_dir.join("status-bar.wasm");
     let config_path = config_dir.join("config.kdl");
     let layout_path = config_dir.join("layout.kdl");
 
     // Check if setup is needed
-    if plugin_path.exists() && config_path.exists() && layout_path.exists() {
+    if bunshin_plugin_path.exists()
+        && status_bar_plugin_path.exists()
+        && config_path.exists()
+        && layout_path.exists()
+    {
         // Setup already done, skip silently
         return Ok(());
     }
@@ -98,15 +104,19 @@ fn setup() -> Result<()> {
     fs::create_dir_all(&config_dir)?;
     fs::create_dir_all(&bin_dir)?;
 
-    // Extract embedded plugin WASM
-    let mut file = fs::File::create(&plugin_path)?;
-    file.write_all(PLUGIN_WASM)?;
+    // Extract embedded bunshin plugin WASM
+    let mut file = fs::File::create(&bunshin_plugin_path)?;
+    file.write_all(BUNSHIN_WASM)?;
+
+    // Extract embedded status-bar plugin WASM
+    let mut file = fs::File::create(&status_bar_plugin_path)?;
+    file.write_all(STATUS_BAR_WASM)?;
 
     // Create config file
-    create_config_file(&config_path, &plugin_path)?;
+    create_config_file(&config_path, &bunshin_plugin_path)?;
 
     // Create layout file
-    create_layout_file(&layout_path)?;
+    create_layout_file(&layout_path, &status_bar_plugin_path)?;
 
     // Check for Zellij
     match which_zellij() {
@@ -170,22 +180,25 @@ keybinds clear-defaults=true {{
     Ok(())
 }
 
-fn create_layout_file(path: &Path) -> Result<()> {
-    let layout = r#"layout {
-    pane size=1 borderless=true {
+fn create_layout_file(path: &Path, status_bar_plugin_path: &Path) -> Result<()> {
+    let layout = format!(
+        r#"layout {{
+    pane size=1 borderless=true {{
         plugin location="tab-bar"
-    }
-    pane split_direction="Vertical" {
-        pane {
+    }}
+    pane split_direction="Vertical" {{
+        pane {{
             command "claude"
             // cwd defaults to current working directory
-        }
-    }
-    pane size=2 borderless=true {
-        plugin location="status-bar"
-    }
-}
-"#;
+        }}
+    }}
+    pane size=2 borderless=true {{
+        plugin location="file:{}"
+    }}
+}}
+"#,
+        status_bar_plugin_path.display()
+    );
 
     fs::write(path, layout)?;
     Ok(())

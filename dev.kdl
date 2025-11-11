@@ -29,9 +29,17 @@ keybinds {
         bind "Ctrl b" { SwitchToMode "tmux"; }
     }
     tmux {
-        // Test the plugin during development
+        // Test the bunshin plugin during development
         bind "s" {
             LaunchOrFocusPlugin "file:plugin/target/wasm32-wasip1/release/bunshin.wasm" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "normal";
+        }
+        // Test the status-bar plugin during development
+        bind "b" {
+            LaunchOrFocusPlugin "file:status-bar/target/wasm32-wasip1/release/status-bar.wasm" {
                 floating true
                 move_to_focused_tab true
             }
