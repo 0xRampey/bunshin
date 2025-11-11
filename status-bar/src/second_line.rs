@@ -261,7 +261,7 @@ fn get_keys_and_hints(mi: &ModeInfo) -> Vec<(String, String, Vec<KeyWithModifier
             &[A::MoveFocus(Dir::Left)], &[A::MoveFocus(Dir::Down)],
             &[A::MoveFocus(Dir::Up)], &[A::MoveFocus(Dir::Right)]])),
     ]} else if mi.mode == IM::Normal { vec![
-        (s("Tmux mode"), s("Tmux"), action_key(&km, &[A::SwitchToMode(IM::Tmux)])),
+        (s("Tmux mode"), s("Tmux"), vec![KeyWithModifier::new(BareKey::Char('b')).with_ctrl_modifier()]),
     ]} else { vec![] }
 }
 
