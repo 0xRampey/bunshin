@@ -150,6 +150,16 @@ fn long_mode_shortcut(
 ) -> LinePart {
     let key_hint = key.full_text();
     let has_common_modifiers = !common_modifiers.is_empty();
+    if key.key.is_none() && matches!(key.action, KeyAction::Tmux) {
+        return tmux_indicator_shortcut(
+            &key_hint,
+            key.mode,
+            palette,
+            separator,
+            has_common_modifiers,
+            first_tile,
+        );
+    }
     let key_binding = match (&key.mode, &key.key) {
         (KeyMode::Disabled, None) => "".to_string(),
         (_, None) => return LinePart::default(),
@@ -202,6 +212,16 @@ fn shortened_modifier_shortcut(
 ) -> LinePart {
     let key_hint = key.full_text();
     let has_common_modifiers = !common_modifiers.is_empty();
+    if key.key.is_none() && matches!(key.action, KeyAction::Tmux) {
+        return tmux_indicator_shortcut(
+            &key_hint,
+            key.mode,
+            palette,
+            separator,
+            has_common_modifiers,
+            first_tile,
+        );
+    }
     let key_binding = match (&key.mode, &key.key) {
         (KeyMode::Disabled, None) => "".to_string(),
         (_, None) => return LinePart::default(),
@@ -271,6 +291,16 @@ fn short_mode_shortcut(
     first_tile: bool,
 ) -> LinePart {
     let has_common_modifiers = !common_modifiers.is_empty();
+    if key.key.is_none() && matches!(key.action, KeyAction::Tmux) {
+        return tmux_indicator_shortcut(
+            &key.full_text(),
+            key.mode,
+            palette,
+            separator,
+            has_common_modifiers,
+            first_tile,
+        );
+    }
     let key_binding = match (&key.mode, &key.key) {
         (KeyMode::Disabled, None) => "".to_string(),
         (_, None) => return LinePart::default(),
@@ -298,6 +328,38 @@ fn short_mode_shortcut(
             + key_binding.chars().count()   // Key binding
             + 1                             // " "
             + separator.chars().count(), // Separator
+    }
+}
+
+fn tmux_indicator_shortcut(
+    key_hint: &str,
+    mode: KeyMode,
+    palette: ColoredElements,
+    separator: &str,
+    has_common_modifiers: bool,
+    first_tile: bool,
+) -> LinePart {
+    let colors = match mode {
+        KeyMode::Unselected => palette.unselected,
+        KeyMode::UnselectedAlternate => palette.unselected_alternate,
+        KeyMode::Selected => palette.selected,
+        KeyMode::Disabled => palette.disabled,
+    };
+    let start_separator = if !has_common_modifiers && first_tile {
+        ""
+    } else {
+        separator
+    };
+    let prefix_separator = colors.prefix_separator.paint(start_separator);
+    let styled_text = colors.styled_text.paint(format!(" {} ", key_hint));
+    let suffix_separator = colors.suffix_separator.paint(separator);
+    LinePart {
+        part: ANSIStrings(&[prefix_separator, styled_text, suffix_separator]).to_string(),
+        len: start_separator.chars().count()
+            + 1 // leading space
+            + key_hint.chars().count()
+            + 1 // trailing space
+            + separator.chars().count(),
     }
 }
 
@@ -515,6 +577,9 @@ pub fn superkey(
     separator: &str,
     mode_info: &ModeInfo,
 ) -> (Vec<KeyModifier>, LinePart) {
+    if mode_info.mode == InputMode::Tmux {
+        return (vec![], LinePart::default());
+    }
     // Find a common modifier if any
     let common_modifiers = get_common_modifiers(mode_switch_keys(mode_info).iter().collect());
     if common_modifiers.is_empty() {
@@ -695,7 +760,7 @@ pub fn first_line(
         default_keys.push(KeyShortcut::new(
             KeyMode::Selected,
             KeyAction::Tmux,
-            to_char(action_key(binds, &[TO_NORMAL])),
+            None,
         ));
     }
 

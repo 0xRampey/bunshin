@@ -252,9 +252,10 @@ fn get_keys_and_hints(mi: &ModeInfo) -> Vec<(String, String, Vec<KeyWithModifier
         (s("Session Manager"), s("Manager"), action_key(&km, &[A::LaunchOrFocusPlugin(Default::default(), true, true, false, false), TO_NORMAL])), // not entirely accurate
         (s("Select pane"), s("Select"), to_normal_key),
     ]} else if mi.mode == IM::Tmux { vec![
-        (s("[TMUX MODE]"), s("[TMUX]"), action_key(&km, &[A::SwitchToMode(IM::Normal)])),
-        (s("New tab"), s("C"), action_key(&km, &[A::NewTab(None, vec![], None, None, None, true, None), TO_NORMAL])),
-        (s("Session manager"), s("S"), action_key(&km, &[A::LaunchOrFocusPlugin(Default::default(), true, true, false, false), TO_NORMAL])),
+        (s("New tab"), s("New"), action_key(&km, &[A::NewTab(None, vec![], None, None, None, true, None), TO_NORMAL])),
+        (s("Session manager"), s("Session"), action_key(&km, &[A::LaunchOrFocusPlugin(Default::default(), true, true, false, false), TO_NORMAL])),
+        (s("Detach"), s("Detach"), action_key(&km, &[A::Detach])),
+        (s("Exit"), s("Exit"), prefer_bare_key(action_key(&km, &[A::SwitchToMode(IM::Normal)]), BareKey::Esc)),
     ]} else if matches!(mi.mode, IM::RenamePane | IM::RenameTab) { vec![
         (s("When done"), s("Done"), to_normal_key),
         (s("Select pane"), s("Select"), action_key_group(&km, &[
@@ -263,6 +264,17 @@ fn get_keys_and_hints(mi: &ModeInfo) -> Vec<(String, String, Vec<KeyWithModifier
     ]} else if mi.mode == IM::Normal { vec![
         (s("Tmux mode"), s("Tmux"), vec![KeyWithModifier::new(BareKey::Char('b')).with_ctrl_modifier()]),
     ]} else { vec![] }
+}
+
+fn prefer_bare_key(
+    mut keys: Vec<KeyWithModifier>,
+    preferred: BareKey,
+) -> Vec<KeyWithModifier> {
+    if let Some(index) = keys.iter().position(|k| k.bare_key == preferred) {
+        vec![keys.remove(index)]
+    } else {
+        keys.into_iter().take(1).collect()
+    }
 }
 
 fn shortened_shortcut_list_nonstandard_mode(help: &ModeInfo) -> LinePart {
