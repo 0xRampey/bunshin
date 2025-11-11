@@ -595,7 +595,7 @@ fn get_key_shortcut_for_mode<'a>(
     mode: &InputMode,
 ) -> Option<&'a mut KeyShortcut> {
     let key_action = match mode {
-        InputMode::Normal | InputMode::Prompt | InputMode::Tmux => return None,
+        InputMode::Normal | InputMode::Prompt => return None,
         InputMode::Locked => KeyAction::Lock,
         InputMode::Pane | InputMode::RenamePane => KeyAction::Pane,
         InputMode::Tab | InputMode::RenameTab => KeyAction::Tab,
@@ -603,6 +603,7 @@ fn get_key_shortcut_for_mode<'a>(
         InputMode::Move => KeyAction::Move,
         InputMode::Scroll | InputMode::Search | InputMode::EnterSearch => KeyAction::Search,
         InputMode::Session => KeyAction::Session,
+        InputMode::Tmux => KeyAction::Tmux,
     };
     for shortcut in shortcuts.iter_mut() {
         if shortcut.action == key_action {
@@ -675,6 +676,11 @@ pub fn first_line(
             KeyAction::Quit,
             to_char(action_key(binds, &[Action::Quit])),
         ),
+        KeyShortcut::new(
+            KeyMode::Unselected,
+            KeyAction::Tmux,
+            to_char(action_key(binds, &[Action::SwitchToMode(InputMode::Tmux)])),
+        ),
     ];
 
     if let Some(key_shortcut) = get_key_shortcut_for_mode(&mut default_keys, &help.mode) {
@@ -687,15 +693,6 @@ pub fn first_line(
         for key in default_keys.iter_mut().skip(1) {
             key.mode = KeyMode::Disabled;
         }
-    }
-
-    if help.mode == InputMode::Tmux {
-        // Tmux tile is hidden by default
-        default_keys.push(KeyShortcut::new(
-            KeyMode::Selected,
-            KeyAction::Tmux,
-            to_char(action_key(binds, &[TO_NORMAL])),
-        ));
     }
 
     let mut key_indicators =
