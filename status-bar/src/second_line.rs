@@ -252,23 +252,16 @@ fn get_keys_and_hints(mi: &ModeInfo) -> Vec<(String, String, Vec<KeyWithModifier
         (s("Session Manager"), s("Manager"), action_key(&km, &[A::LaunchOrFocusPlugin(Default::default(), true, true, false, false), TO_NORMAL])), // not entirely accurate
         (s("Select pane"), s("Select"), to_normal_key),
     ]} else if mi.mode == IM::Tmux { vec![
-        (s("Move focus"), s("Move"), action_key_group(&km, &[
-            &[A::MoveFocus(Dir::Left)], &[A::MoveFocus(Dir::Down)],
-            &[A::MoveFocus(Dir::Up)], &[A::MoveFocus(Dir::Right)]])),
-        (s("Split down"), s("Down"), action_key(&km, &[A::NewPane(Some(Dir::Down), None, false), TO_NORMAL])),
-        (s("Split right"), s("Right"), action_key(&km, &[A::NewPane(Some(Dir::Right), None, false), TO_NORMAL])),
-        (s("Fullscreen"), s("Fullscreen"), action_key(&km, &[A::ToggleFocusFullscreen, TO_NORMAL])),
-        (s("New tab"), s("New"), action_key(&km, &[A::NewTab(None, vec![], None, None, None, true, None), TO_NORMAL])),
-        (s("Rename tab"), s("Rename"),
-            action_key(&km, &[A::SwitchToMode(IM::RenameTab), A::TabNameInput(vec![0])])),
-        (s("Previous Tab"), s("Previous"), action_key(&km, &[A::GoToPreviousTab, TO_NORMAL])),
-        (s("Next Tab"), s("Next"), action_key(&km, &[A::GoToNextTab, TO_NORMAL])),
-        (s("Select pane"), s("Select"), to_normal_key),
+        (s("[TMUX MODE]"), s("[TMUX]"), action_key(&km, &[A::SwitchToMode(IM::Normal)])),
+        (s("New tab"), s("C"), action_key(&km, &[A::NewTab(None, vec![], None, None, None, true, None), TO_NORMAL])),
+        (s("Session manager"), s("S"), action_key(&km, &[A::LaunchOrFocusPlugin(Default::default(), true, true, false, false), TO_NORMAL])),
     ]} else if matches!(mi.mode, IM::RenamePane | IM::RenameTab) { vec![
         (s("When done"), s("Done"), to_normal_key),
         (s("Select pane"), s("Select"), action_key_group(&km, &[
             &[A::MoveFocus(Dir::Left)], &[A::MoveFocus(Dir::Down)],
             &[A::MoveFocus(Dir::Up)], &[A::MoveFocus(Dir::Right)]])),
+    ]} else if mi.mode == IM::Normal { vec![
+        (s("Tmux mode"), s("Tmux"), action_key(&km, &[A::SwitchToMode(IM::Tmux)])),
     ]} else { vec![] }
 }
 
