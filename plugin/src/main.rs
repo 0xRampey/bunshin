@@ -1,5 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use zellij_tile::prelude::*;
+
+const REPO_QUERY_CONTEXT_KEY: &str = "repo_query_session";
+const LOAD_SESSIONS_CONTEXT_KEY: &str = "load_sessions";
+const SESSIONS_FILE: &str = ".bunshin/sessions.json";
 
 #[derive(Default)]
 struct State {
@@ -11,6 +15,10 @@ struct State {
     new_session_name: Option<String>,
     rename_input: Option<String>,
     error_message: Option<String>,
+    // Repo grouping
+    session_repos: HashMap<String, String>, // session_name -> repo_name
+    pending_repo_query: Option<String>,     // session name waiting for git result
+    current_repo: Option<String>,           // repo detected at plugin load
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -35,6 +43,7 @@ impl ZellijPlugin for State {
             EventType::Key,
             EventType::SessionUpdate,
             EventType::ModeUpdate,
+            EventType::RunCommandResult,
         ]);
         request_permission(&[
             PermissionType::ReadApplicationState,
@@ -42,6 +51,12 @@ impl ZellijPlugin for State {
             PermissionType::OpenTerminalsOrPlugins,
             PermissionType::RunCommands,
         ]);
+
+        // Detect current repo at plugin load time
+        self.detect_current_repo();
+
+        // Load persisted session->repo mappings
+        self.load_session_repos();
     }
 
     fn update(&mut self, event: Event) -> bool {
@@ -61,6 +76,9 @@ impl ZellijPlugin for State {
             Event::ModeUpdate(mode_info) => {
                 self.colors = mode_info.style.colors;
                 should_render = true;
+            }
+            Event::RunCommandResult(exit_code, stdout, _stderr, context) => {
+                should_render = self.handle_run_command_result(exit_code, stdout, context);
             }
             _ => {}
         }
@@ -326,7 +344,7 @@ impl State {
     }
 
     fn create_session(&mut self) -> bool {
-        if let Some(name) = &self.new_session_name {
+        if let Some(name) = &self.new_session_name.clone() {
             if name.is_empty() {
                 self.error_message = Some("Session name cannot be empty".to_string());
                 self.mode = Mode::List;
@@ -345,6 +363,9 @@ impl State {
                 self.new_session_name = None;
                 return true;
             }
+
+            // Register repo for this session before creating it
+            self.register_session_repo(name);
 
             switch_session(Some(name));
             self.mode = Mode::List;
@@ -401,6 +422,187 @@ impl State {
             .unwrap_or(false)
     }
 
+    // Repo detection functions
+    fn detect_current_repo(&mut self) {
+        let mut context = BTreeMap::new();
+        context.insert(REPO_QUERY_CONTEXT_KEY.to_string(), "__current__".to_string());
+        run_command(
+            &["git", "rev-parse", "--show-toplevel"],
+            context,
+        );
+    }
+
+    fn query_repo_for_session(&mut self, session_name: &str) {
+        self.pending_repo_query = Some(session_name.to_string());
+        let mut context = BTreeMap::new();
+        context.insert(REPO_QUERY_CONTEXT_KEY.to_string(), session_name.to_string());
+        run_command(
+            &["git", "rev-parse", "--show-toplevel"],
+            context,
+        );
+    }
+
+    fn handle_run_command_result(
+        &mut self,
+        exit_code: Option<i32>,
+        stdout: Vec<u8>,
+        context: BTreeMap<String, String>,
+    ) -> bool {
+        // Check if this is a load sessions result
+        if context.get(LOAD_SESSIONS_CONTEXT_KEY).is_some() {
+            if exit_code == Some(0) {
+                let json = String::from_utf8_lossy(&stdout).to_string();
+                self.parse_session_repos_json(&json);
+                return true;
+            }
+            // File doesn't exist yet, that's fine
+            return false;
+        }
+
+        // Check if this is a repo query result
+        if let Some(session_name) = context.get(REPO_QUERY_CONTEXT_KEY) {
+            if exit_code == Some(0) {
+                let repo_path = String::from_utf8_lossy(&stdout).trim().to_string();
+                let repo_name = self.extract_repo_name(&repo_path);
+
+                if session_name == "__current__" {
+                    // This is the initial repo detection at plugin load
+                    self.current_repo = Some(repo_name);
+                } else {
+                    // This is a session-specific repo query
+                    self.session_repos.insert(session_name.clone(), repo_name);
+                    if self.pending_repo_query.as_ref() == Some(session_name) {
+                        self.pending_repo_query = None;
+                    }
+                    // Persist the updated mappings
+                    self.persist_session_repos();
+                }
+                return true;
+            } else {
+                // Not in a git repo, use "Other" or current directory name
+                if session_name == "__current__" {
+                    self.current_repo = None;
+                }
+                if self.pending_repo_query.as_ref() == Some(session_name) {
+                    self.pending_repo_query = None;
+                }
+            }
+        }
+        false
+    }
+
+    fn extract_repo_name(&self, repo_path: &str) -> String {
+        std::path::Path::new(repo_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string()
+    }
+
+    fn register_session_repo(&mut self, session_name: &str) {
+        // If we know the current repo, associate it with this session
+        if let Some(ref repo) = self.current_repo {
+            self.session_repos.insert(session_name.to_string(), repo.clone());
+            // Persist to file
+            self.persist_session_repos();
+        } else {
+            // Query git for this session
+            self.query_repo_for_session(session_name);
+        }
+    }
+
+    fn load_session_repos(&self) {
+        // Load session->repo mappings from file using cat command
+        let mut context = BTreeMap::new();
+        context.insert(LOAD_SESSIONS_CONTEXT_KEY.to_string(), "true".to_string());
+        run_command(
+            &["cat", &format!("$HOME/{}", SESSIONS_FILE)],
+            context,
+        );
+    }
+
+    fn persist_session_repos(&self) {
+        // Convert HashMap to simple JSON format
+        let mut json_parts: Vec<String> = Vec::new();
+        for (session, repo) in &self.session_repos {
+            // Escape any quotes in session/repo names
+            let escaped_session = session.replace('\\', "\\\\").replace('"', "\\\"");
+            let escaped_repo = repo.replace('\\', "\\\\").replace('"', "\\\"");
+            json_parts.push(format!("\"{}\":\"{}\"", escaped_session, escaped_repo));
+        }
+        let json = format!("{{{}}}", json_parts.join(","));
+
+        // Write to file using shell
+        // First ensure directory exists, then write the file
+        let cmd = format!(
+            "mkdir -p $HOME/.bunshin && echo '{}' > $HOME/{}",
+            json, SESSIONS_FILE
+        );
+        run_command(&["sh", "-c", &cmd], BTreeMap::new());
+    }
+
+    fn parse_session_repos_json(&mut self, json: &str) {
+        // Simple JSON parser for {"key":"value",...} format
+        let json = json.trim();
+        if !json.starts_with('{') || !json.ends_with('}') {
+            return;
+        }
+        let inner = &json[1..json.len() - 1];
+        if inner.is_empty() {
+            return;
+        }
+
+        // Split by comma, but be careful about commas inside strings
+        let mut pairs = Vec::new();
+        let mut current = String::new();
+        let mut in_string = false;
+        let mut escape_next = false;
+
+        for c in inner.chars() {
+            if escape_next {
+                current.push(c);
+                escape_next = false;
+                continue;
+            }
+            match c {
+                '\\' => {
+                    escape_next = true;
+                    current.push(c);
+                }
+                '"' => {
+                    in_string = !in_string;
+                    current.push(c);
+                }
+                ',' if !in_string => {
+                    pairs.push(current.trim().to_string());
+                    current = String::new();
+                }
+                _ => current.push(c),
+            }
+        }
+        if !current.is_empty() {
+            pairs.push(current.trim().to_string());
+        }
+
+        // Parse each "key":"value" pair
+        for pair in pairs {
+            if let Some(colon_pos) = pair.find(':') {
+                let key = pair[..colon_pos].trim();
+                let value = pair[colon_pos + 1..].trim();
+
+                // Remove quotes
+                if key.len() >= 2 && value.len() >= 2 {
+                    let key = &key[1..key.len() - 1];
+                    let value = &value[1..value.len() - 1];
+                    // Unescape
+                    let key = key.replace("\\\"", "\"").replace("\\\\", "\\");
+                    let value = value.replace("\\\"", "\"").replace("\\\\", "\\");
+                    self.session_repos.insert(key, value);
+                }
+            }
+        }
+    }
+
     fn launch_claude_pane(&self) {
         // Launch Claude Code in a new pane in the current session
         let command = CommandToRun {
@@ -426,9 +628,12 @@ impl State {
         open_command_pane(command, context);
     }
 
-    fn create_claude_session(&self) {
+    fn create_claude_session(&mut self) {
         // Create a new session with Claude Code auto-started
         let session_name = format!("claude-{}", chrono::Utc::now().timestamp());
+
+        // Register repo for this session before creating it
+        self.register_session_repo(&session_name);
 
         // Create the session first
         switch_session(Some(&session_name));
@@ -441,6 +646,33 @@ impl State {
         };
         let context = BTreeMap::new();
         open_command_pane(command, context);
+    }
+
+    /// Groups sessions by their associated repo name
+    fn get_grouped_sessions(&self) -> Vec<(String, Vec<&SessionInfo>)> {
+        let mut groups: HashMap<String, Vec<&SessionInfo>> = HashMap::new();
+
+        for session in &self.sessions {
+            let repo = self
+                .session_repos
+                .get(&session.name)
+                .cloned()
+                .unwrap_or_else(|| "Other".to_string());
+            groups.entry(repo).or_default().push(session);
+        }
+
+        // Convert to sorted vec (alphabetically by repo name, "Other" last)
+        let mut result: Vec<_> = groups.into_iter().collect();
+        result.sort_by(|a, b| {
+            if a.0 == "Other" {
+                std::cmp::Ordering::Greater
+            } else if b.0 == "Other" {
+                std::cmp::Ordering::Less
+            } else {
+                a.0.cmp(&b.0)
+            }
+        });
+        result
     }
 
     fn render_session_list(&self, rows: usize, cols: usize) {
@@ -473,76 +705,98 @@ impl State {
             return;
         }
 
-        // Headers
-        let header_y = 3;
+        // Separator after title
+        let separator = "─".repeat(cols.saturating_sub(4));
+        print_text_with_coordinates(Text::new(&separator), 2, 3, None, None);
+
+        // Get grouped sessions
+        let grouped = self.get_grouped_sessions();
+
+        // Calculate display metrics
+        let list_start_y = 4;
+        let max_visible_lines = rows.saturating_sub(list_start_y + 3);
         let name_col = 2;
         let windows_col = cols.saturating_sub(40);
-        let _panes_col = cols.saturating_sub(30);
-        let _clients_col = cols.saturating_sub(20);
 
-        let header = format!(
-            "{:<width1$}  {:<width2$}  {:<width3$}  {:<width4$}",
-            "Session",
-            "Windows",
-            "Panes",
-            "Clients",
-            width1 = windows_col.saturating_sub(name_col + 2).max(10),
-            width2 = 7,
-            width3 = 5,
-            width4 = 7,
-        );
-        let header_text = Text::new(&header).color_range(1, 0..header.len());
-        print_text_with_coordinates(header_text, name_col, header_y, None, None);
+        // Build a flat list of display items (headers and sessions)
+        // Each item is either a header (None) or a session (Some(global_idx))
+        let mut display_items: Vec<(bool, Option<usize>, String, Option<&SessionInfo>)> = Vec::new();
+        let mut global_idx = 0;
 
-        // Separator
-        let separator = "─".repeat(cols.saturating_sub(4));
-        print_text_with_coordinates(Text::new(&separator), 2, header_y + 1, None, None);
+        for (repo, sessions) in &grouped {
+            // Add repo header
+            let header = format!("▼ {} ({})", repo, sessions.len());
+            display_items.push((true, None, header, None));
 
-        // Session list
-        let list_start_y = header_y + 2;
-        let max_visible_sessions = rows.saturating_sub(list_start_y + 3);
+            // Add sessions under this repo
+            for session in sessions {
+                display_items.push((false, Some(global_idx), session.name.clone(), Some(*session)));
+                global_idx += 1;
+            }
+        }
 
-        let start_idx = if self.selected_index >= max_visible_sessions {
-            self.selected_index.saturating_sub(max_visible_sessions - 1)
+        // Calculate scroll offset based on selected_index
+        // We need to find which display item corresponds to selected_index
+        let mut selected_display_idx = 0;
+        for (i, item) in display_items.iter().enumerate() {
+            if item.1 == Some(self.selected_index) {
+                selected_display_idx = i;
+                break;
+            }
+        }
+
+        let start_display_idx = if selected_display_idx >= max_visible_lines {
+            selected_display_idx.saturating_sub(max_visible_lines - 1)
         } else {
             0
         };
-        let end_idx = (start_idx + max_visible_sessions).min(self.sessions.len());
+        let end_display_idx = (start_display_idx + max_visible_lines).min(display_items.len());
 
-        for (i, session) in self.sessions[start_idx..end_idx].iter().enumerate() {
-            let row = list_start_y + i;
-            let global_idx = start_idx + i;
-            let is_selected = global_idx == self.selected_index;
-            let is_current = session.is_current_session;
+        // Render visible items
+        let mut current_row = list_start_y;
+        for display_idx in start_display_idx..end_display_idx {
+            let (is_header, session_idx, ref label, session_opt) = &display_items[display_idx];
 
-            let session_indicator = if is_current { "*" } else { " " };
-            let name_display = format!("{} {}", session_indicator, session.name);
+            if *is_header {
+                // Render repo header
+                let header_text = Text::new(label).color_range(3, 0..label.len());
+                print_text_with_coordinates(header_text, name_col, current_row, None, None);
+            } else if let Some(session) = session_opt {
+                // Render session row
+                let is_selected = *session_idx == Some(self.selected_index);
+                let is_current = session.is_current_session;
 
-            let windows_count = session.tabs.len();
-            let panes_count: usize = session.panes.panes.len();
-            let clients_count = session.connected_clients;
+                let session_indicator = if is_current { "*" } else { " " };
+                let name_display = format!("  {} {}", session_indicator, session.name);
 
-            let line = format!(
-                "{:<width1$}  {:<width2$}  {:<width3$}  {:<width4$}",
-                name_display,
-                windows_count,
-                panes_count,
-                clients_count,
-                width1 = windows_col.saturating_sub(name_col + 2).max(10),
-                width2 = 7,
-                width3 = 5,
-                width4 = 7,
-            );
+                let windows_count = session.tabs.len();
+                let panes_count: usize = session.panes.panes.len();
+                let clients_count = session.connected_clients;
 
-            let mut text = Text::new(&line);
-            if is_selected {
-                text = text.selected();
+                let line = format!(
+                    "{:<width1$}  {:<width2$}  {:<width3$}  {:<width4$}",
+                    name_display,
+                    windows_count,
+                    panes_count,
+                    clients_count,
+                    width1 = windows_col.saturating_sub(name_col + 2).max(10),
+                    width2 = 7,
+                    width3 = 5,
+                    width4 = 7,
+                );
+
+                let mut text = Text::new(&line);
+                if is_selected {
+                    text = text.selected();
+                }
+                if is_current {
+                    text = text.color_range(2, 0..name_display.len());
+                }
+
+                print_text_with_coordinates(text, name_col, current_row, None, None);
             }
-            if is_current {
-                text = text.color_range(2, 0..name_display.len());
-            }
 
-            print_text_with_coordinates(text, name_col, row, None, None);
+            current_row += 1;
         }
 
         // Status line
@@ -1252,5 +1506,75 @@ mod tests {
         state.rename_session();
         assert!(state.error_message.is_some());
         assert!(state.error_message.as_ref().unwrap().contains("too long"));
+    }
+
+    #[test]
+    fn test_extract_repo_name() {
+        let state = State::default();
+
+        assert_eq!(state.extract_repo_name("/home/user/projects/bunshin"), "bunshin");
+        assert_eq!(state.extract_repo_name("/home/user/my-app"), "my-app");
+        assert_eq!(state.extract_repo_name("/"), "unknown");
+        assert_eq!(state.extract_repo_name(""), "unknown");
+    }
+
+    #[test]
+    fn test_parse_session_repos_json() {
+        let mut state = State::default();
+
+        // Empty JSON
+        state.parse_session_repos_json("{}");
+        assert!(state.session_repos.is_empty());
+
+        // Simple JSON
+        state.parse_session_repos_json(r#"{"session1":"repo1","session2":"repo2"}"#);
+        assert_eq!(state.session_repos.get("session1"), Some(&"repo1".to_string()));
+        assert_eq!(state.session_repos.get("session2"), Some(&"repo2".to_string()));
+
+        // JSON with escaped quotes
+        state.session_repos.clear();
+        state.parse_session_repos_json(r#"{"my\"session":"my\"repo"}"#);
+        assert_eq!(state.session_repos.get("my\"session"), Some(&"my\"repo".to_string()));
+    }
+
+    #[test]
+    fn test_get_grouped_sessions() {
+        let mut state = State::default();
+        state.sessions = vec![
+            create_test_session("session1", true),
+            create_test_session("session2", false),
+            create_test_session("session3", false),
+        ];
+        state.session_repos.insert("session1".to_string(), "repo-a".to_string());
+        state.session_repos.insert("session2".to_string(), "repo-b".to_string());
+        // session3 has no repo, should go to "Other"
+
+        let grouped = state.get_grouped_sessions();
+
+        // Should have 3 groups: repo-a, repo-b, Other
+        assert_eq!(grouped.len(), 3);
+
+        // Check order (alphabetical, Other last)
+        assert_eq!(grouped[0].0, "repo-a");
+        assert_eq!(grouped[1].0, "repo-b");
+        assert_eq!(grouped[2].0, "Other");
+
+        // Check sessions in each group
+        assert_eq!(grouped[0].1.len(), 1);
+        assert_eq!(grouped[0].1[0].name, "session1");
+
+        assert_eq!(grouped[1].1.len(), 1);
+        assert_eq!(grouped[1].1[0].name, "session2");
+
+        assert_eq!(grouped[2].1.len(), 1);
+        assert_eq!(grouped[2].1[0].name, "session3");
+    }
+
+    #[test]
+    fn test_state_default_with_repos() {
+        let state = State::default();
+        assert!(state.session_repos.is_empty());
+        assert!(state.pending_repo_query.is_none());
+        assert!(state.current_repo.is_none());
     }
 }
